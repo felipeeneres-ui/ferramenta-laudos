@@ -13,7 +13,7 @@ nada é enviado para a internet.
 3. Abra o **Prompt de Comando** (menu Iniciar → digite `cmd`) e cole:
 
    ```
-   git clone https://github.com/SEU-USUARIO/ferramenta-laudos.git %USERPROFILE%\ferramenta-laudos
+   git clone https://github.com/felipeeneres-ui/ferramenta-laudos.git %USERPROFILE%\ferramenta-laudos
    ```
 
 4. Abra a pasta `ferramenta-laudos` (fica em Usuários → seu nome) e dê dois
