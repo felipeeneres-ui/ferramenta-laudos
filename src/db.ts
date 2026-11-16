@@ -68,12 +68,15 @@ export async function putBg(floorId: string, blob: Blob) {
   await set(`bg:${floorId}`, blob);
   await gravarArquivo('fundos', floorId, blob);
 }
+// A pasta manda: o fundo pode ter sido trocado por outro navegador, e a cópia
+// guardada aqui ficaria velha. A cópia local só vale se a pasta não responder.
 export async function getBg(floorId: string): Promise<Blob | undefined> {
-  const local = await get<Blob>(`bg:${floorId}`);
-  if (local) return local;
   const doDisco = await lerArquivo('fundos', floorId);
-  if (doDisco) await set(`bg:${floorId}`, doDisco);
-  return doDisco;
+  if (doDisco) {
+    await set(`bg:${floorId}`, doDisco);
+    return doDisco;
+  }
+  return get<Blob>(`bg:${floorId}`);
 }
 export async function delBg(floorId: string) {
   await del(`bg:${floorId}`);
