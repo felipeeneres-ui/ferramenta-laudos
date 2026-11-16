@@ -5,6 +5,7 @@ import {
   IconChevronRight,
   IconCircleCheck,
   IconPencil,
+  IconCamera,
 } from '@tabler/icons-react';
 import { useStore } from '../store';
 import { usePhotoUrl } from '../photoUrl';
@@ -21,6 +22,14 @@ interface Props {
 export function PhotoViewer({ photos, index, onIndex, onClose, onEdit }: Props) {
   const photo = photos[index];
   const setClassification = useStore((s) => s.setClassification);
+  const createVista = useStore((s) => s.createVista);
+  const removeVista = useStore((s) => s.removeVista);
+
+  // Vista: marca a foto para aparecer no croqui como um ponto (fica "a posicionar").
+  function alternarVista() {
+    if (!photo.vista) createVista(photo.id);
+    else if (confirm('Remover a vista desta foto do croqui?')) removeVista(photo.id);
+  }
 
   const thumbUrl = usePhotoUrl(photo.id, 'thumb');
   const fullUrl = usePhotoUrl(photo.id, 'original');
@@ -33,10 +42,11 @@ export function PhotoViewer({ photos, index, onIndex, onClose, onEdit }: Props) 
       else if (e.key === '1') setClassification(photo.id, null);
       else if (e.key === '2') setClassification(photo.id, 'tabela');
       else if (e.key === '3') setClassification(photo.id, 'laudo');
+      else if (e.key === '4' && !photo.vista) createVista(photo.id);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [index, photo.id, photos.length, onIndex, onClose, setClassification]);
+  }, [index, photo.id, photo.vista, photos.length, onIndex, onClose, setClassification, createVista]);
 
   function choose(c: Classification) {
     setClassification(photo.id, c);
@@ -108,6 +118,19 @@ export function PhotoViewer({ photos, index, onIndex, onClose, onEdit }: Props) 
         </button>
         <button className={`va${cls === 'laudo' ? ' active laudo' : ''}`} onClick={() => choose('laudo')}>
           Laudo
+        </button>
+        <button
+          className={`va${photo.vista ? ' active vista' : ''}`}
+          onClick={alternarVista}
+          title={
+            photo.vista
+              ? photo.vista.floorId
+                ? 'Esta foto já é uma vista no croqui. Clique para remover.'
+                : 'Vista criada: falta posicionar no croqui (lista "A posicionar"). Clique para remover.'
+              : 'Marca esta foto como uma vista: um ponto no croqui que abre a foto no croqui interativo'
+          }
+        >
+          <IconCamera size={15} /> {photo.vista ? (photo.vista.floorId ? 'Vista no croqui' : 'Vista a posicionar') : 'Criar vista'}
         </button>
         {cls && (
           <button className="va edit" onClick={() => onEdit(photo.id)}>

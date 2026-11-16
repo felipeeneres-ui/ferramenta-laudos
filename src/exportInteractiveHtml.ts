@@ -1,5 +1,6 @@
 import { buildSvg } from './exportPng';
-import { LOCAL_COLORS, type Project } from './types';
+import { LOCAL_COLORS, vistasDaCamada, type Project } from './types';
+import { COR_VISTA } from './geometry';
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -12,6 +13,7 @@ interface PointEntry {
   color: string;
   descricao: string;
   photos: { src: string; nome: string; descricao: string }[];
+  vista?: boolean; // ponto de vista: abre a foto direto
 }
 
 // CSS da página do cliente (estático — sem interpolação).
@@ -71,6 +73,7 @@ const JS = `
   var d=DATA[id]; if(!d) return;
   var s=document.querySelectorAll('.pt.sel'); for(var i=0;i<s.length;i++) s[i].classList.remove('sel');
   if(el) el.classList.add('sel');
+  if(d.vista){ panel.classList.remove('open'); cur=d.photos; if(cur.length) open(0); return; }
   var h='<div class="ph-head"><span class="dot" style="background:'+d.color+'"></span><b>'+e(d.label)+'</b> '+e(d.tipo)+'</div>';
   if(d.comodo) h+='<div class="ph-room">'+e(d.comodo)+'</div>';
   if(d.descricao) h+='<p class="ph-desc">'+e(d.descricao)+'</p>';
@@ -107,7 +110,8 @@ export function buildInteractiveHtml(
       f.walls.length > 0 ||
       !!f.bg ||
       (f.traces ?? []).length > 0 ||
-      project.points.some((p) => p.floorId === f.id),
+      project.points.some((p) => p.floorId === f.id) ||
+      project.photos.some((ph) => ph.vista?.floorId === f.id),
   );
   const floorSvgs = floors.map((f) => {
     const pts = project.points.filter((p) => p.floorId === f.id);
@@ -118,6 +122,8 @@ export function buildInteractiveHtml(
         interactive: true,
         bgDataUrl: bgMap.get(f.id),
         satDataUrl: bgMap.get(`${f.id}_sat`),
+        vistas: vistasDaCamada(project, f.id).filter((v) => srcMap.get(v.id)),
+        vistaSize: project.vistaSize,
       }).svg,
     };
   });
@@ -135,6 +141,23 @@ export function buildInteractiveHtml(
       photos: linked
         .map((ph) => ({ src: srcMap.get(ph.id) || '', nome: ph.nome, descricao: ph.descricao || '' }))
         .filter((x) => x.src),
+    };
+  }
+
+  // vistas: cada foto-vista abre direto, com a rua e a descrição na legenda
+  for (const ph of project.photos) {
+    const src = srcMap.get(ph.id);
+    if (!ph.vista?.floorId || !src) continue;
+    const rua = project.floors.find((f) => f.id === ph.floorId)?.nome ?? '';
+    const legenda = [rua, ph.descricao].filter(Boolean).join(' · ');
+    data[`vista:${ph.id}`] = {
+      label: 'Vista',
+      tipo: '',
+      comodo: rua,
+      color: COR_VISTA,
+      descricao: ph.descricao || '',
+      photos: [{ src, nome: ph.nome, descricao: legenda || ph.nome }],
+      vista: true,
     };
   }
 
@@ -157,7 +180,7 @@ export function buildInteractiveHtml(
     '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<title>${nome} — Croqui interativo</title><style>${CSS}</style></head><body>` +
-    `<header><h1>${nome}</h1><p>Clique em um ponto de anomalia no croqui para ver as fotos.</p></header>` +
+    `<header><h1>${nome}</h1><p>Clique em um ponto no croqui para ver as fotos. Os pontos escuros abrem a vista daquele lugar.</p></header>` +
     tabs +
     `<div class="wrap">${stages}</div>` +
     '<aside id="panel" class="panel"><button id="pclose" class="pclose" aria-label="Fechar">&times;</button><div id="pc"></div></aside>' +

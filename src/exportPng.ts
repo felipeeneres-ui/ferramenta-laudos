@@ -1,6 +1,6 @@
 import type { Floor, AnomalyType, Point } from './types';
 import { LOCAL_COLORS } from './types';
-import { wallVectors } from './geometry';
+import { wallVectors, vistaSvg, TAM_VISTA } from './geometry';
 
 const INK = '#1f2329';
 const SOFT = '#5b6470';
@@ -16,7 +16,13 @@ export function buildSvg(
   types: AnomalyType[],
   points: Point[],
   pointSize = 18,
-  opts: { interactive?: boolean; bgDataUrl?: string; satDataUrl?: string } = {},
+  opts: {
+    interactive?: boolean;
+    bgDataUrl?: string;
+    satDataUrl?: string;
+    vistas?: { id: string; x: number; y: number }[]; // pontos das fotos-vista
+    vistaSize?: number;
+  } = {},
 ): { svg: string; w: number; h: number } {
   const xs: number[] = [];
   const ys: number[] = [];
@@ -33,6 +39,7 @@ export function buildSvg(
     if (p.lx != null && p.ly != null) note(p.lx, p.ly);
   });
   floor.rooms.forEach((r) => note(r.x, r.y));
+  (opts.vistas ?? []).forEach((v) => note(v.x, v.y));
   (floor.traces ?? []).forEach((tr) => tr.pts.forEach((q) => note(q.x, q.y)));
   (floor.labels ?? []).forEach((l) => note(l.x, l.y));
   const bg = floor.bg && opts.bgDataUrl ? floor.bg : null;
@@ -202,6 +209,20 @@ export function buildSvg(
     }
   });
 
+  // vistas (por cima de tudo)
+  const tamVista = opts.vistaSize ?? TAM_VISTA;
+  (opts.vistas ?? []).forEach((v) => {
+    const marca = vistaSvg(v.x, v.y, tamVista);
+    if (opts.interactive)
+      parts.push(
+        `<g data-point="vista:${esc(v.id)}" class="pt">` +
+          `<circle cx="${v.x}" cy="${v.y}" r="${tamVista / 2 + sz * 0.3}" fill="#000" opacity="0"/>` +
+          marca +
+          `</g>`,
+      );
+    else parts.push(marca);
+  });
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX} ${minY} ${w} ${h}">${parts.join('')}</svg>`;
   return { svg, w, h };
 }
@@ -214,8 +235,10 @@ export function exportFloorPng(
   pointSize = 18,
   bgDataUrl?: string,
   satDataUrl?: string,
+  vistas?: { id: string; x: number; y: number }[],
+  vistaSize?: number,
 ) {
-  const { svg, w, h } = buildSvg(floor, types, points, pointSize, { bgDataUrl, satDataUrl });
+  const { svg, w, h } = buildSvg(floor, types, points, pointSize, { bgDataUrl, satDataUrl, vistas, vistaSize });
   // com imagem de fundo, exporta perto da resolução original dela (limitado a ~6000 px)
   let scale = 2;
   if (floor.bg && bgDataUrl) scale = Math.max(2, Math.min(1 / floor.bg.scale, 6000 / Math.max(w, h)));

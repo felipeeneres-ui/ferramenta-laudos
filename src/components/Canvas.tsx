@@ -10,6 +10,8 @@ import {
   closestOnSegment,
   wallVectors,
   pillWidth,
+  vistaSvg,
+  TAM_VISTA,
   type Vec,
 } from '../geometry';
 import { LOCAL_COLORS, type FreeLabel, type OpeningKind, type Wall } from '../types';
@@ -47,6 +49,7 @@ type Drag =
   | { type: 'point-label'; id: string } // move só o rótulo (linha de chamada)
   | { type: 'bg-move'; start: Vec; ox: number; oy: number }
   | { type: 'sat-move'; start: Vec; ox: number; oy: number }
+  | { type: 'vista-move'; id: string }
   | null;
 
 export function Canvas() {
@@ -78,6 +81,9 @@ export function Canvas() {
   const updateFreeLabel = useStore((s) => s.updateFreeLabel);
   const updateFloorBg = useStore((s) => s.updateFloorBg);
   const updateSat = useStore((s) => s.updateSat);
+  const placingVistaId = useStore((s) => s.placingVistaId);
+  const placeVista = useStore((s) => s.placeVista);
+  const updateVista = useStore((s) => s.updateVista);
   const traceStyle = useStore((s) => s.traceStyle);
 
   const traces = floor.traces ?? [];
@@ -102,6 +108,10 @@ export function Canvas() {
     x: pt.x + pillWidth(pointLabel(pt), pointSz) / 2 + 9 / view.scale,
     y: pt.y - pointSz / 2 - 9 / view.scale,
   });
+
+  // vistas (fotos marcadas como "olhar daqui") posicionadas neste desenho
+  const vistas = project.photos.filter((ph) => ph.vista && ph.vista.floorId === floor.id);
+  const tamVista = project.vistaSize ?? TAM_VISTA;
 
   const [wallStart, setWallStart] = useState<Vec | null>(null);
   const [tracePts, setTracePts] = useState<Vec[]>([]);
@@ -143,6 +153,15 @@ export function Canvas() {
   }
 
   function hitTest(p: Vec, alt = false): Drag {
+    // vistas (pontos simples): arrastar move
+    for (let i = vistas.length - 1; i >= 0; i--) {
+      const ph = vistas[i];
+      const v = ph.vista!;
+      if (dist(p, v) < tamVista / 2 + 4 / view.scale) {
+        setSelection({ kind: 'vista', id: ph.id });
+        return { type: 'vista-move', id: ph.id };
+      }
+    }
     // alça do ponto selecionado: puxa o rótulo e cria a linha de chamada
     if (selection?.kind === 'point') {
       const sp = points.find((x) => x.id === selection.id);
@@ -286,6 +305,10 @@ export function Canvas() {
       placePoint(placingPointId, Math.round(p.x), Math.round(p.y));
       return;
     }
+    if (placingVistaId) {
+      placeVista(placingVistaId, Math.round(p.x), Math.round(p.y));
+      return;
+    }
 
     if (tool === 'wall' || tool === 'projection' || tool === 'limit') {
       const s = gsnapVec(p);
@@ -338,6 +361,8 @@ export function Canvas() {
 
     if (d.type === 'pan') {
       setView({ tx: d.tx + (e.clientX - d.sx), ty: d.ty + (e.clientY - d.sy) });
+    } else if (d.type === 'vista-move') {
+      updateVista(d.id, { x: Math.round(p.x), y: Math.round(p.y) });
     } else if (d.type === 'point') {
       updatePoint(d.id, { x: Math.round(p.x), y: Math.round(p.y) });
     } else if (d.type === 'point-label') {
@@ -718,6 +743,29 @@ export function Canvas() {
               </g>
             );
           })}
+
+          {/* vistas: pontos simples, ligados a uma foto */}
+          {vistas.map((ph) => {
+            const v = ph.vista!;
+            const sel = selection?.kind === 'vista' && selection.id === ph.id;
+            return (
+              <g key={ph.id} style={{ userSelect: 'none' }}>
+                <title>{`Vista: ${ph.nome}`}</title>
+                <g dangerouslySetInnerHTML={{ __html: vistaSvg(v.x, v.y, tamVista) }} />
+                {sel && (
+                  <circle
+                    cx={v.x}
+                    cy={v.y}
+                    r={tamVista / 2 + 4 / view.scale}
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeDasharray="4 3"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
+              </g>
+            );
+          })}
         </g>
       </svg>
 
@@ -739,6 +787,7 @@ export function Canvas() {
         </div>
       )}
       {tool === 'flabel' && <div className="hint-bar">Clique para colocar o texto</div>}
+      {placingVistaId && <div className="hint-bar">Clique no croqui, no lugar de onde a foto foi tirada</div>}
       {placingPointId && (
         <div className="hint-bar">Clique no croqui para posicionar o ponto</div>
       )}

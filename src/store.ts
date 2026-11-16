@@ -223,6 +223,14 @@ interface State {
   activeLocal: Local;
   openingWidth: number;
   placingPointId: string | null; // ponto selecionado p/ posicionar no croqui
+  placingVistaId: string | null; // foto cuja vista será posicionada no próximo clique no croqui
+  setPlacingVista: (id: string | null) => void;
+  createVista: (photoId: string) => void; // marca a foto como vista (a posicionar)
+  placeVista: (photoId: string, x: number, y: number) => void;
+  updateVista: (photoId: string, patch: Partial<{ x: number; y: number }>) => void;
+  removeVista: (photoId: string) => void;
+  setVistasNoExport: (v: boolean) => void;
+  setVistaSize: (tam: number) => void;
   snapEnabled: boolean;
 
   setAppView: (v: AppView) => void;
@@ -377,12 +385,66 @@ export const useStore = create<State>((set, get) => {
     activeLocal: 'parede',
     openingWidth: 60,
     placingPointId: null,
+    placingVistaId: null,
     snapEnabled: true,
 
     setAppView: (v) => set({ appView: v }),
-    setPlacingPoint: (id) => set({ placingPointId: id }),
+    setPlacingPoint: (id) => set({ placingPointId: id, placingVistaId: null }),
+    setPlacingVista: (id) => set({ placingVistaId: id, placingPointId: null }),
+
+    createVista: (photoId) => {
+      const p = get().project;
+      commit({
+        ...p,
+        photos: p.photos.map((ph) =>
+          ph.id === photoId && !ph.vista
+            ? { ...ph, reviewed: true, vista: { floorId: null, x: 0, y: 0, ang: -90 } }
+            : ph,
+        ),
+      });
+    },
+
+    placeVista: (photoId, x, y) => {
+      const p = get().project;
+      commit({
+        ...p,
+        photos: p.photos.map((ph) =>
+          ph.id === photoId && ph.vista ? { ...ph, vista: { ...ph.vista, floorId: drawFloorId(p), x, y } } : ph,
+        ),
+      });
+      set({ placingVistaId: null, selection: { kind: 'vista', id: photoId }, tool: 'select' });
+    },
+
+    updateVista: (photoId, patch) => {
+      const p = get().project;
+      commit({
+        ...p,
+        photos: p.photos.map((ph) => (ph.id === photoId && ph.vista ? { ...ph, vista: { ...ph.vista, ...patch } } : ph)),
+      });
+    },
+
+    removeVista: (photoId) => {
+      const p = get().project;
+      commit({
+        ...p,
+        photos: p.photos.map((ph) => {
+          if (ph.id !== photoId || !ph.vista) return ph;
+          const { vista: _fora, ...resto } = ph;
+          void _fora;
+          return resto;
+        }),
+      });
+      const st = get();
+      set({
+        placingVistaId: st.placingVistaId === photoId ? null : st.placingVistaId,
+        selection: st.selection?.kind === 'vista' && st.selection.id === photoId ? null : st.selection,
+      });
+    },
+
+    setVistasNoExport: (v) => commit({ ...get().project, vistasNoExport: v }),
+    setVistaSize: (tam) => commit({ ...get().project, vistaSize: tam }),
     toggleSnap: () => set({ snapEnabled: !get().snapEnabled }),
-    setTool: (t) => set({ tool: t, selection: null, placingPointId: null }),
+    setTool: (t) => set({ tool: t, selection: null, placingPointId: null, placingVistaId: null }),
     setSelection: (s) => set({ selection: s }),
     setView: (v) => set({ view: { ...get().view, ...v } }),
     setActiveType: (id) => set({ activeTypeId: id }),
@@ -550,6 +612,9 @@ export const useStore = create<State>((set, get) => {
         floors: p.floors.map((f, i) => (i === 0 ? f : { ...f, bg: null, sat: null })),
         // pontos já posicionados passam para o desenho único
         points: p.points.map((pt) => (pt.floorId ? { ...pt, floorId: p.floors[0].id } : pt)),
+        photos: p.photos.map((ph) =>
+          ph.vista?.floorId ? { ...ph, vista: { ...ph.vista, floorId: p.floors[0].id } } : ph,
+        ),
       });
     },
 
@@ -728,6 +793,10 @@ export const useStore = create<State>((set, get) => {
     deleteSelection: () => {
       const sel = get().selection;
       if (!sel) return;
+      if (sel.kind === 'vista') {
+        get().removeVista(sel.id);
+        return;
+      }
       if (sel.kind === 'point') {
         const p = get().project;
         // remove o ponto e desvincula das fotos

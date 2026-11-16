@@ -10,7 +10,7 @@ type AutoTableDoc = jsPDF & {
 };
 import { renderEditedDataUrl, type PointInfo } from './renderEdited';
 import { getBg, blobToDataUrl } from './db';
-import { LOCAL_COLORS, comparePhotos, type Project, type Point } from './types';
+import { LOCAL_COLORS, comparePhotos, vistasDaCamada, type Project, type Point } from './types';
 
 // Renderiza o croqui de um pavimento (SVG) para PNG (data URL).
 async function floorPng(
@@ -32,6 +32,8 @@ async function floorPng(
   const { svg, w, h } = buildSvg(floor, project.anomalyTypes, pts, project.croquiPointSize ?? 18, {
     bgDataUrl,
     satDataUrl,
+    vistas: project.vistasNoExport ? vistasDaCamada(project, floor.id) : undefined,
+    vistaSize: project.vistaSize,
   });
   return new Promise((res, rej) => {
     const img = new Image();

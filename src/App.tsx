@@ -10,6 +10,7 @@ import { TableView } from './components/TableView';
 import { LaudoView } from './components/LaudoView';
 import { ClientView } from './components/ClientView';
 import { useStore } from './store';
+import { vistasDaCamada } from './types';
 import { exportFloorPng } from './exportPng';
 import { getBg, blobToDataUrl } from './db';
 
@@ -53,7 +54,17 @@ export default function App() {
       const blob = await getBg(`${floor.id}_sat`);
       if (blob) satDataUrl = await blobToDataUrl(blob);
     }
-    exportFloorPng(floor, project.anomalyTypes, pts, name, project.croquiPointSize ?? 18, bgDataUrl, satDataUrl);
+    exportFloorPng(
+      floor,
+      project.anomalyTypes,
+      pts,
+      name,
+      project.croquiPointSize ?? 18,
+      bgDataUrl,
+      satDataUrl,
+      project.vistasNoExport ? vistasDaCamada(project, floor.id) : undefined,
+      project.vistaSize,
+    );
   }
 
   const croquiPane = (

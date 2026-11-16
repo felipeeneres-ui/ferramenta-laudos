@@ -27,7 +27,7 @@ export function ClientView() {
       // fotos vinculadas a algum ponto (Laudo ou Tabela), versão editada quando houver
       const linkedIds = new Set(project.points.map((p) => p.id));
       const photos = project.photos.filter(
-        (ph) => ph.classification && ph.pointIds.some((id) => linkedIds.has(id)),
+        (ph) => (ph.classification && ph.pointIds.some((id) => linkedIds.has(id))) || !!ph.vista?.floorId,
       );
       const srcMap = new Map<string, string>();
       for (const ph of photos) {

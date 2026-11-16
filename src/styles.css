@@ -1748,3 +1748,28 @@ button {
   white-space: nowrap;
   margin-right: 4px;
 }
+
+/* ---------- vistas ---------- */
+.photo-card .vista-tag {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #26333f;
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.viewer-actions .va.active.vista {
+  background: #26333f;
+  border-color: #26333f;
+  color: #fff;
+}
+.vista-thumb {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+}

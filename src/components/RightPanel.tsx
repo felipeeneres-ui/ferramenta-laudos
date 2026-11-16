@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import { putBg } from '../db';
 import { baixarSatelite } from '../satelite';
+import { usePhotoUrl } from '../photoUrl';
+import { TAM_VISTA } from '../geometry';
 import { ANNOTATION_COLORS, LOCAL_COLORS, LOCAL_LABEL, comodoOptions, type Local } from '../types';
 import { wallLength } from '../geometry';
 import {
@@ -13,6 +15,7 @@ import {
   IconLockOpen,
   IconCopy,
   IconSatellite,
+  IconCamera,
 } from '@tabler/icons-react';
 
 const LOCALS: Local[] = ['parede', 'piso', 'teto'];
@@ -50,6 +53,18 @@ export function RightPanel() {
       const pb = typeOf(b.typeId)?.prefix ?? '';
       return pa.localeCompare(pb, 'pt') || a.numero - b.numero;
     });
+
+  // vistas: fotos marcadas como "Criar vista" que ainda não foram postas no croqui
+  const vistasPendentes = project.photos.filter((ph) => ph.vista && !ph.vista.floorId);
+  const selVista =
+    selection?.kind === 'vista' ? project.photos.find((ph) => ph.id === selection.id && ph.vista) : undefined;
+  const placingVistaId = useStore((s) => s.placingVistaId);
+  const setPlacingVista = useStore((s) => s.setPlacingVista);
+  const setVistaSize = useStore((s) => s.setVistaSize);
+  const tamVista = project.vistaSize ?? TAM_VISTA;
+  const updatePhoto = useStore((s) => s.updatePhoto);
+  const setVistasNoExport = useStore((s) => s.setVistasNoExport);
+  const nomeDaRua = (floorId?: string) => project.floors.find((f) => f.id === floorId)?.nome ?? '';
 
   const selPoint =
     selection?.kind === 'point' ? project.points.find((p) => p.id === selection.id) : undefined;
@@ -172,6 +187,82 @@ export function RightPanel() {
           <p className="muted">
             {placingPointId ? 'Clique no croqui para posicionar.' : 'Selecione um ponto e clique no croqui para posicioná-lo.'}
           </p>
+        </section>
+      )}
+
+      {/* Vistas criadas nas fotos, aguardando posição no croqui */}
+      {vistasPendentes.length > 0 && (
+        <section style={{ marginTop: 0 }}>
+          <h3>
+            <IconCamera size={15} style={{ verticalAlign: -2, marginRight: 5 }} />
+            Vistas a posicionar ({vistasPendentes.length})
+          </h3>
+          <div className="type-list">
+            {vistasPendentes.map((ph) => (
+              <div
+                key={ph.id}
+                className={`type-row${placingVistaId === ph.id ? ' active' : ''}`}
+                onClick={() => setPlacingVista(placingVistaId === ph.id ? null : ph.id)}
+                title={ph.nome}
+              >
+                <IconCamera size={14} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ph.nome}</span>
+                <span style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{nomeDaRua(ph.floorId)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="muted">
+            {placingVistaId
+              ? 'Clique no croqui, no lugar de onde a foto foi tirada.'
+              : 'Selecione uma vista e clique no croqui para posicioná-la.'}
+          </p>
+        </section>
+      )}
+
+      {selVista && selVista.vista && (
+        <section>
+          <h3>
+            <IconCamera size={15} style={{ verticalAlign: -2, marginRight: 5 }} />
+            Vista
+          </h3>
+          <VistaThumb id={selVista.id} />
+          <p className="muted" style={{ marginTop: 0 }}>
+            {selVista.nome}
+            {nomeDaRua(selVista.floorId) ? ` · ${nomeDaRua(selVista.floorId)}` : ''}
+          </p>
+          <div className="field">
+            <label>Descrição (legenda no croqui interativo)</label>
+            <textarea
+              value={selVista.descricao}
+              placeholder="Ex.: Vista da calçada, sentido Rua 1500"
+              onChange={(e) => updatePhoto(selVista.id, { descricao: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label>
+              Tamanho do ponto <span className="val">{tamVista}</span>
+            </label>
+            <input
+              type="range"
+              min={4}
+              max={40}
+              value={tamVista}
+              onChange={(e) => setVistaSize(Number(e.target.value))}
+            />
+          </div>
+          <p className="muted">O tamanho vale para todas as vistas do croqui. Arraste o ponto para mover.</p>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={!!project.vistasNoExport}
+              onChange={(e) => setVistasNoExport(e.target.checked)}
+            />
+            Mostrar as vistas também no PNG e no PDF
+          </label>
+          <p className="muted">No croqui interativo as vistas aparecem sempre; clicar no ponto abre a foto.</p>
+          <button className="panel-btn danger" onClick={deleteSelection}>
+            <IconTrash size={15} /> Remover vista
+          </button>
         </section>
       )}
 
@@ -674,4 +765,9 @@ function labelOpening(kind: string): string {
 
 function prefixOf(typeId: string, project: { anomalyTypes: { id: string; prefix: string }[] }): string {
   return project.anomalyTypes.find((t) => t.id === typeId)?.prefix ?? '';
+}
+
+function VistaThumb({ id }: { id: string }) {
+  const url = usePhotoUrl(id, 'thumb');
+  return url ? <img className="vista-thumb" src={url} alt="" /> : null;
 }

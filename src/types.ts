@@ -219,6 +219,16 @@ export interface Photo {
   edited: boolean;
   // camada (pavimento ou rua) a que a foto pertence; ausente = foto antiga, sem camada
   floorId?: string;
+  // Vista: a foto marcada no croqui como "olhar daqui" (um ponto simples). Não é ponto
+  // de análise: não entra na tabela. No croqui interativo, clicar no ponto abre a foto.
+  vista?: PhotoVista;
+}
+
+export interface PhotoVista {
+  floorId: string | null; // camada do desenho; null = ainda não posicionada
+  x: number;
+  y: number;
+  ang: number; // sem uso (a vista já teve um leque de direção); mantido por compatibilidade
 }
 
 export type AppView = 'croqui' | 'fotos' | 'split' | 'tabela' | 'laudo' | 'cliente';
@@ -236,6 +246,15 @@ export interface Project {
   // As camadas viram "ruas": grupos de fotos e de pontos, sem desenho próprio.
   croquiUnico?: boolean;
   croquiGeo?: CroquiGeo;
+  vistasNoExport?: boolean; // mostrar as vistas também no PNG e no PDF (ausente = só no interativo)
+  vistaSize?: number; // diâmetro do ponto das vistas (ausente = TAM_VISTA)
+}
+
+// Vistas posicionadas numa camada do desenho, no formato usado pelas exportações.
+export function vistasDaCamada(project: Project, floorId: string) {
+  return project.photos
+    .filter((ph) => ph.vista && ph.vista.floorId === floorId)
+    .map((ph) => ({ id: ph.id, x: ph.vista!.x, y: ph.vista!.y }));
 }
 
 // Camada que guarda o desenho em uso: a ativa ou, no croqui único, sempre a primeira.
@@ -306,4 +325,5 @@ export type Selection =
   | { kind: 'point'; id: string }
   | { kind: 'trace'; id: string }
   | { kind: 'flabel'; id: string }
+  | { kind: 'vista'; id: string } // id da foto
   | null;

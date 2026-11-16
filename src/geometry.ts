@@ -142,3 +142,13 @@ export function wallVectors(w: { x1: number; y1: number; x2: number; y2: number 
     normal: { x: -dy / len, y: dx / len },
   };
 }
+
+// ---------- Vista (ponto simples no croqui) ----------
+
+export const COR_VISTA = '#26333F';
+export const TAM_VISTA = 14; // diâmetro padrão, em unidades do croqui
+
+// Marcação SVG da vista (usada na tela e nas exportações): um ponto escuro com contorno branco.
+export function vistaSvg(x: number, y: number, tam: number): string {
+  return `<circle cx="${x}" cy="${y}" r="${tam / 2}" fill="${COR_VISTA}" stroke="#ffffff" stroke-width="${Math.max(1, tam * 0.14).toFixed(1)}"/>`;
+}

@@ -333,6 +333,11 @@ function PhotoCard({ photo, onOpen, onEdit }: { photo: Photo; onOpen: () => void
           </span>
         )}
         {photo.edited && <span className="edited-tag">editada</span>}
+        {photo.vista && (
+          <span className="vista-tag" title={photo.vista.floorId ? 'Vista no croqui' : 'Vista a posicionar no croqui'}>
+            vista{photo.vista.floorId ? '' : ' (a posicionar)'}
+          </span>
+        )}
         {photo.reviewed && (
           <span className="check" aria-label="Analisada">
             <IconCheck size={13} stroke={3} />
