@@ -1,4 +1,5 @@
 import { get, set, del, clear } from 'idb-keyval';
+import { gravarArquivo, lerArquivo, apagarArquivo } from './disco';
 
 // Armazenamento das imagens (blobs) no IndexedDB — fora do localStorage,
 // que é pequeno demais para fotos. O projeto (metadados) fica no localStorage;
@@ -10,8 +11,19 @@ const edited = (id: string) => `edited:${id}`;
 const handle = (id: string) => `handle:${id}`;
 
 // Miniatura (sempre presente — usada na galeria).
-export const putThumb = (id: string, blob: Blob) => set(thumb(id), blob);
-export const getThumb = (id: string) => get<Blob>(thumb(id));
+// Também vai para a pasta do projeto no computador; se faltar no navegador
+// (outro navegador, dados limpos), é lida de lá.
+export async function putThumb(id: string, blob: Blob) {
+  await set(thumb(id), blob);
+  void gravarArquivo('miniaturas', id, blob);
+}
+export async function getThumb(id: string): Promise<Blob | undefined> {
+  const local = await get<Blob>(thumb(id));
+  if (local) return local;
+  const doDisco = await lerArquivo('miniaturas', id);
+  if (doDisco) await set(thumb(id), doDisco);
+  return doDisco;
+}
 
 // Original: ou um blob copiado (fallback de arquivos soltos), ou lido sob
 // demanda a partir do file handle (importação por pasta — não duplica os GB).
@@ -45,14 +57,28 @@ export async function deletePhotoBlobs(id: string) {
   await del(thumb(id));
   await del(edited(id));
   await del(handle(id));
+  void apagarArquivo('miniaturas', id);
 }
 
 export const clearAllBlobs = () => clear();
 
 // Imagem de fundo do croqui (satélite/planta), por pavimento.
-export const putBg = (floorId: string, blob: Blob) => set(`bg:${floorId}`, blob);
-export const getBg = (floorId: string) => get<Blob>(`bg:${floorId}`);
-export const delBg = (floorId: string) => del(`bg:${floorId}`);
+// Gravada também na pasta do projeto no computador (e lida de lá se faltar aqui).
+export async function putBg(floorId: string, blob: Blob) {
+  await set(`bg:${floorId}`, blob);
+  await gravarArquivo('fundos', floorId, blob);
+}
+export async function getBg(floorId: string): Promise<Blob | undefined> {
+  const local = await get<Blob>(`bg:${floorId}`);
+  if (local) return local;
+  const doDisco = await lerArquivo('fundos', floorId);
+  if (doDisco) await set(`bg:${floorId}`, doDisco);
+  return doDisco;
+}
+export async function delBg(floorId: string) {
+  await del(`bg:${floorId}`);
+  void apagarArquivo('fundos', floorId);
+}
 
 // Blob → data URL (para embutir o fundo nos exports PNG/PDF/HTML).
 export function blobToDataUrl(blob: Blob): Promise<string> {

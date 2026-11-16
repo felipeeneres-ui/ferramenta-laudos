@@ -73,6 +73,15 @@ export function AppHeader() {
   }
 
   const goHome = useStore((s) => s.goHome);
+  const disco = useStore((s) => s.disco);
+  const hora = (ts: number) => new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const discoTxt = !disco.pasta
+    ? 'Só no navegador'
+    : disco.estado === 'salvando'
+      ? 'Salvando…'
+      : disco.estado === 'falhou'
+        ? 'Falha ao salvar na pasta'
+        : `Salvo na pasta ${disco.em ? 'às ' + hora(disco.em) : ''}`;
 
   return (
     <div className="appheader">
@@ -100,7 +109,13 @@ export function AppHeader() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span
+          className={`disco-status${!disco.pasta || disco.estado === 'falhou' ? ' aviso' : ''}`}
+          title={disco.pasta ? `Projeto gravado automaticamente em: ${disco.pasta}` : 'A gravação em pasta não está ativa'}
+        >
+          {discoTxt}
+        </span>
         <input ref={fileRef} type="file" accept=".json" hidden onChange={openJSON} />
         <button
           className="icon-btn"

@@ -16,7 +16,7 @@ export function buildSvg(
   types: AnomalyType[],
   points: Point[],
   pointSize = 18,
-  opts: { interactive?: boolean; bgDataUrl?: string } = {},
+  opts: { interactive?: boolean; bgDataUrl?: string; satDataUrl?: string } = {},
 ): { svg: string; w: number; h: number } {
   const xs: number[] = [];
   const ys: number[] = [];
@@ -36,9 +36,11 @@ export function buildSvg(
   (floor.traces ?? []).forEach((tr) => tr.pts.forEach((q) => note(q.x, q.y)));
   (floor.labels ?? []).forEach((l) => note(l.x, l.y));
   const bg = floor.bg && opts.bgDataUrl ? floor.bg : null;
-  if (bg) {
-    note(bg.x, bg.y);
-    note(bg.x + bg.w * bg.scale, bg.y + bg.h * bg.scale);
+  const sat = floor.sat && opts.satDataUrl ? floor.sat : null;
+  // com o desenho de fundo presente, é ele que define o enquadramento (o satélite não alarga)
+  for (const im of bg ? [bg] : sat ? [sat] : []) {
+    note(im.x, im.y);
+    note(im.x + im.w * im.scale, im.y + im.h * im.scale);
   }
   floor.openings.forEach((o) => {
     const w = floor.walls.find((x) => x.id === o.wallId);
@@ -64,10 +66,17 @@ export function buildSvg(
   const parts: string[] = [];
   parts.push(`<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="#ffffff"/>`);
 
-  // imagem de fundo (satélite/planta)
-  if (bg) {
+  // imagem de satélite (por baixo) e imagem de fundo (desenho/planta)
+  for (const [im, url] of [
+    [sat, opts.satDataUrl],
+    [bg, opts.bgDataUrl],
+  ] as const) {
+    if (!im) continue;
+    const iw = im.w * im.scale;
+    const ih = im.h * im.scale;
+    const giro = im.rot ? ` transform="rotate(${im.rot} ${im.x + iw / 2} ${im.y + ih / 2})"` : '';
     parts.push(
-      `<image href="${opts.bgDataUrl}" x="${bg.x}" y="${bg.y}" width="${bg.w * bg.scale}" height="${bg.h * bg.scale}" opacity="${bg.opacity}" preserveAspectRatio="none"/>`,
+      `<image href="${url}" x="${im.x}" y="${im.y}" width="${iw}" height="${ih}" opacity="${im.opacity}" preserveAspectRatio="none"${giro}/>`,
     );
   }
 
@@ -204,8 +213,9 @@ export function exportFloorPng(
   filename: string,
   pointSize = 18,
   bgDataUrl?: string,
+  satDataUrl?: string,
 ) {
-  const { svg, w, h } = buildSvg(floor, types, points, pointSize, { bgDataUrl });
+  const { svg, w, h } = buildSvg(floor, types, points, pointSize, { bgDataUrl, satDataUrl });
   // com imagem de fundo, exporta perto da resolução original dela (limitado a ~6000 px)
   let scale = 2;
   if (floor.bg && bgDataUrl) scale = Math.max(2, Math.min(1 / floor.bg.scale, 6000 / Math.max(w, h)));

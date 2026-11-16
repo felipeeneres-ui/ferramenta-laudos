@@ -26,3 +26,7 @@ backups/
 *.njsproj
 *.sln
 *.sw?
+
+# projetos gravados em pasta (dados de clientes) e a configuração local de onde ficam
+projetos-dados/
+dados.config.json

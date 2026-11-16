@@ -42,10 +42,12 @@ export function ClientView() {
       // imagens de fundo dos pavimentos (satélite/planta)
       const bgMap = new Map<string, string>();
       for (const f of project.floors) {
-        if (!f.bg) continue;
+        if (!f.bg && !f.sat) continue;
         try {
-          const blob = await getBg(f.id);
+          const blob = f.bg ? await getBg(f.id) : undefined;
           if (blob) bgMap.set(f.id, await blobToDataUrl(blob));
+          const sat = f.sat ? await getBg(`${f.id}_sat`) : undefined;
+          if (sat) bgMap.set(`${f.id}_sat`, await blobToDataUrl(sat));
         } catch {
           /* sem fundo — segue */
         }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   IconPlus,
   IconDownload,
@@ -7,9 +7,11 @@ import {
   IconMagnet,
   IconPhotoUp,
   IconArrowsMove,
+  IconMap2,
 } from '@tabler/icons-react';
 import { useStore } from '../store';
 import { putBg } from '../db';
+import { CroquiRuaDialog } from './CroquiRuaDialog';
 
 interface Props {
   onExport: () => void;
@@ -28,6 +30,7 @@ export function CroquiBar({ onExport }: Props) {
   const arrangeLabels = useStore((s) => s.arrangeLabels);
   const fileRef = useRef<HTMLInputElement>(null);
   const bgRef = useRef<HTMLInputElement>(null);
+  const [ruaOpen, setRuaOpen] = useState(false);
 
   async function applyBg(file: Blob) {
     try {
@@ -35,7 +38,17 @@ export function CroquiBar({ onExport }: Props) {
       const w = bmp.width;
       const h = bmp.height;
       bmp.close();
-      await putBg(useStore.getState().project.activeFloorId, file);
+      const st = useStore.getState();
+      const fl = st.activeFloor();
+      // croqui único já com o desenho: a imagem nova entra como satélite, por baixo
+      if (st.project.croquiUnico && fl.bg) {
+        await putBg(`${fl.id}_sat`, file);
+        const largura = fl.bg.w * fl.bg.scale;
+        st.setSat({ x: fl.bg.x, y: fl.bg.y, w, h, scale: largura / w, opacity: 1, locked: false, rev: Date.now() });
+        if (fl.bg.opacity > 0.7) st.updateFloorBg({ opacity: 0.6 });
+        return;
+      }
+      await putBg(fl.id, file);
       // escala inicial: imagem com ~800 unidades de mundo de largura
       setFloorBg({ x: 0, y: 0, w, h, scale: 800 / w, opacity: 1, locked: false, rev: Date.now() });
     } catch {
@@ -60,9 +73,12 @@ export function CroquiBar({ onExport }: Props) {
       e.preventDefault();
       const st = useStore.getState();
       const fl = st.activeFloor();
-      const msg = fl.bg
-        ? `Trocar a imagem de fundo de "${fl.nome}" pela imagem colada?`
-        : `Usar a imagem colada como fundo de "${fl.nome}"?`;
+      const msg =
+        st.project.croquiUnico && fl.bg
+          ? 'Usar a imagem colada como satélite, por baixo do desenho do croqui?'
+          : fl.bg
+            ? `Trocar a imagem de fundo de "${fl.nome}" pela imagem colada?`
+            : `Usar a imagem colada como fundo de "${fl.nome}"?`;
       if (confirm(msg)) void applyBg(file);
     }
     window.addEventListener('paste', onPaste);
@@ -111,7 +127,11 @@ export function CroquiBar({ onExport }: Props) {
             className={`floor-tab${f.id === project.activeFloorId ? ' active' : ''}`}
             onClick={() => setActiveFloor(f.id)}
             onDoubleClick={() => onRename(f.id, f.nome)}
-            title="Clique duplo para renomear"
+            title={
+              project.croquiUnico
+                ? 'Rua ativa: os pontos novos entram nela. Clique duplo para renomear.'
+                : 'Clique duplo para renomear'
+            }
           >
             {f.nome}
           </button>
@@ -140,6 +160,13 @@ export function CroquiBar({ onExport }: Props) {
         </button>
         <button
           className="icon-btn ghost"
+          title="Vistoria de rua: desenha a quadra a partir de uma coordenada e cria uma camada por rua"
+          onClick={() => setRuaOpen(true)}
+        >
+          <IconMap2 size={16} /> Croqui de rua
+        </button>
+        <button
+          className="icon-btn ghost"
           title="Afasta os rótulos que estão uns sobre os outros, criando linhas de chamada"
           onClick={onArrange}
         >
@@ -156,6 +183,7 @@ export function CroquiBar({ onExport }: Props) {
           Exportar PNG
         </button>
       </div>
+      {ruaOpen && <CroquiRuaDialog onClose={() => setRuaOpen(false)} />}
     </div>
   );
 }

@@ -117,6 +117,7 @@ export function buildInteractiveHtml(
       svg: buildSvg(f, project.anomalyTypes, pts, project.croquiPointSize ?? 18, {
         interactive: true,
         bgDataUrl: bgMap.get(f.id),
+        satDataUrl: bgMap.get(`${f.id}_sat`),
       }).svg,
     };
   });

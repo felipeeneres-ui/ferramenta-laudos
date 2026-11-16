@@ -20,9 +20,23 @@ import {
   DEFAULT_TYPES,
   DEFAULT_CROQUI_POINT,
   floorAsComodo,
+  drawFloorId,
+  type CroquiGeo,
 } from './types';
 import { uid, pillWidth, spreadLabels } from './geometry';
+import { get as idbGet } from 'idb-keyval';
 import { deletePhotoBlobs, delBg, delDirHandle, getBg, putBg } from './db';
+import {
+  agendarGravacao,
+  aoSalvar,
+  descarregarPendentes,
+  excluirDoDisco,
+  gravarArquivo,
+  gravarNoDisco,
+  lerDoDisco,
+  listarDisco,
+  setProjetoAtivo,
+} from './disco';
 
 // Multiprojeto: cada projeto vive em ferramenta-laudos:project:<id>.
 const KEY_PREFIX = 'ferramenta-laudos:project:';
@@ -91,13 +105,31 @@ function ensurePhotos(p: Project): Project {
   return p;
 }
 
+// Projeto ainda intocado (o "Novo imóvel" que cada navegador cria sozinho): não vai para a pasta.
+function intocado(p: Project): boolean {
+  return (
+    p.nome === 'Novo imóvel' &&
+    p.floors.length === 1 &&
+    p.points.length === 0 &&
+    p.photos.length === 0 &&
+    p.floors.every(
+      (f) =>
+        !f.bg &&
+        f.walls.length + f.openings.length + f.rooms.length + (f.traces ?? []).length + (f.labels ?? []).length === 0,
+    )
+  );
+}
+
 function persist(project: Project) {
+  const comData = { ...project, updatedAt: Date.now() };
   try {
-    localStorage.setItem(KEY_PREFIX + project.id, JSON.stringify({ ...project, updatedAt: Date.now() }));
+    localStorage.setItem(KEY_PREFIX + project.id, JSON.stringify(comData));
     localStorage.setItem(ACTIVE_KEY, project.id);
   } catch {
     // armazenamento indisponível
   }
+  // espelha na pasta do computador (gravação adiada)
+  if (!intocado(project)) agendarGravacao(comData);
 }
 
 // Migra o formato antigo (projeto único) para o multiprojeto.
@@ -166,8 +198,16 @@ function loadInitial(): Project {
   return fresh;
 }
 
+// Situação da gravação na pasta do computador.
+export interface DiscoInfo {
+  pasta: string | null; // null = servidor sem a gravação em pasta (só navegador)
+  estado: 'verificando' | 'salvando' | 'salvo' | 'falhou';
+  em: number; // hora da última gravação confirmada
+}
+
 interface State {
   project: Project;
+  disco: DiscoInfo;
   home: boolean; // página inicial (lista de projetos)
   projects: ProjectMeta[]; // índice para a página inicial
   goHome: () => void;
@@ -217,6 +257,11 @@ interface State {
   updateFreeLabel: (id: string, patch: Partial<FreeLabel>) => void;
   setFloorBg: (bg: FloorBg | null) => void;
   updateFloorBg: (patch: Partial<FloorBg>) => void;
+  setSat: (sat: FloorBg | null) => void; // imagem de satélite (por baixo do fundo)
+  updateSat: (patch: Partial<FloorBg>) => void;
+  setCroquiUnico: (geo: CroquiGeo | null) => void; // liga o croqui único (um desenho, ruas como grupos)
+  ensureFloor: (nome: string) => string; // camada com esse nome (cria se não existir); devolve o id
+  setBgOf: (floorId: string, bg: FloorBg) => void;
   copyBgToAllFloors: () => Promise<number>; // mesmo fundo (imagem, posição e escala) nas outras camadas
   arrangeLabels: () => number; // afasta rótulos sobrepostos da camada ativa
   setAllRoomFonts: (size: number) => void;
@@ -255,6 +300,7 @@ export const useStore = create<State>((set, get) => {
 
   return {
     project: loadInitial(),
+    disco: { pasta: null, estado: 'verificando', em: 0 },
     home: true, // começa na página de projetos
     projects: listProjects(),
 
@@ -293,12 +339,14 @@ export const useStore = create<State>((set, get) => {
     deleteProject: (id) => {
       const p = loadById(id);
       localStorage.removeItem(KEY_PREFIX + id);
+      void excluirDoDisco(id); // na pasta, o projeto vai para _lixeira (não é apagado)
       // limpa os blobs (fotos, fundos, pasta) do projeto excluído
       if (p) {
         void (async () => {
           for (const ph of p.photos) await deletePhotoBlobs(ph.id);
           for (const f of p.floors) {
             await delBg(f.id);
+            await delBg(`${f.id}_sat`);
             await delDirHandle(p.id, f.id);
           }
           await delDirHandle(p.id);
@@ -341,15 +389,18 @@ export const useStore = create<State>((set, get) => {
     setActiveLocal: (l) => set({ activeLocal: l }),
     setOpeningWidth: (w) => set({ openingWidth: w }),
 
+    // camada do DESENHO: a ativa ou, no croqui único, a primeira
     activeFloor: () => {
       const p = get().project;
-      return p.floors.find((f) => f.id === p.activeFloorId) ?? p.floors[0];
+      const id = drawFloorId(p);
+      return p.floors.find((f) => f.id === id) ?? p.floors[0];
     },
 
     mutateFloor: (fn) => {
       const p = get().project;
+      const alvo = drawFloorId(p);
       const floors = p.floors.map((f) => {
-        if (f.id !== p.activeFloorId) return f;
+        if (f.id !== alvo) return f;
         const copy: Floor = {
           ...f,
           walls: [...f.walls],
@@ -470,8 +521,40 @@ export const useStore = create<State>((set, get) => {
       });
     },
 
+    setSat: (sat) => {
+      const floorId = drawFloorId(get().project);
+      get().mutateFloor((f) => {
+        f.sat = sat;
+      });
+      if (!sat) void delBg(`${floorId}_sat`);
+    },
+
+    updateSat: (patch) => {
+      get().mutateFloor((f) => {
+        if (f.sat) f.sat = { ...f.sat, ...patch };
+      });
+    },
+
+    setCroquiUnico: (geo) => {
+      const p = get().project;
+      // os fundos separados das outras camadas deixam de valer
+      for (const f of p.floors.slice(1)) {
+        if (f.bg) void delBg(f.id);
+        if (f.sat) void delBg(`${f.id}_sat`);
+      }
+      commit({
+        ...p,
+        croquiUnico: true,
+        croquiGeo: geo ?? undefined,
+        croquiPointSize: p.croquiPointSize ?? 28, // a quadra inteira pede um pino um pouco maior
+        floors: p.floors.map((f, i) => (i === 0 ? f : { ...f, bg: null, sat: null })),
+        // pontos já posicionados passam para o desenho único
+        points: p.points.map((pt) => (pt.floorId ? { ...pt, floorId: p.floors[0].id } : pt)),
+      });
+    },
+
     setFloorBg: (bg) => {
-      const floorId = get().project.activeFloorId;
+      const floorId = drawFloorId(get().project);
       get().mutateFloor((f) => {
         f.bg = bg;
       });
@@ -482,6 +565,34 @@ export const useStore = create<State>((set, get) => {
       get().mutateFloor((f) => {
         if (f.bg) f.bg = { ...f.bg, ...patch };
       });
+    },
+
+    ensureFloor: (nome) => {
+      const p = get().project;
+      const alvo = nome.trim().toLowerCase();
+      const igual = p.floors.find((f) => f.nome.trim().toLowerCase() === alvo);
+      if (igual) return igual.id;
+      // projeto recém-criado: aproveita a única camada, se ainda estiver vazia
+      const f0 = p.floors[0];
+      const vazia =
+        p.floors.length === 1 &&
+        f0.nome === 'Térreo' && // ainda com o nome padrão (não é uma rua já criada)
+        !f0.bg &&
+        f0.walls.length + f0.openings.length + f0.rooms.length + (f0.traces ?? []).length + (f0.labels ?? []).length === 0 &&
+        !p.points.some((pt) => pt.floorId === f0.id) &&
+        !p.photos.some((ph) => ph.floorId === f0.id);
+      if (vazia) {
+        commit({ ...p, floors: [{ ...f0, nome }] });
+        return f0.id;
+      }
+      const f = newFloor(nome);
+      commit({ ...p, floors: [...p.floors, f] });
+      return f.id;
+    },
+
+    setBgOf: (floorId, bg) => {
+      const p = get().project;
+      commit({ ...p, floors: p.floors.map((f) => (f.id === floorId ? { ...f, bg } : f)) });
     },
 
     copyBgToAllFloors: async () => {
@@ -505,7 +616,7 @@ export const useStore = create<State>((set, get) => {
       const p = get().project;
       const sz = p.croquiPointSize ?? DEFAULT_CROQUI_POINT;
       const items = p.points
-        .filter((pt) => pt.floorId === p.activeFloorId)
+        .filter((pt) => pt.floorId === drawFloorId(p))
         .map((pt) => {
           const prefix = p.anomalyTypes.find((t) => t.id === pt.typeId)?.prefix ?? '?';
           return { id: pt.id, x: pt.x, y: pt.y, lx: pt.lx, ly: pt.ly, w: pillWidth(`${prefix}${pt.numero}`, sz) };
@@ -539,10 +650,10 @@ export const useStore = create<State>((set, get) => {
         id,
         typeId: type.id,
         numero: max + 1,
-        local: get().activeLocal,
+        local: p.croquiUnico ? 'parede' : get().activeLocal, // croqui único: pino de uma cor só
         comodo: floorAsComodo(p, p.activeFloorId),
         descricao: '',
-        floorId: p.activeFloorId,
+        floorId: drawFloorId(p),
         x,
         y,
       };
@@ -561,7 +672,7 @@ export const useStore = create<State>((set, get) => {
         id,
         typeId: type.id,
         numero: max + 1,
-        local: attrs.local,
+        local: p.croquiUnico ? 'parede' : attrs.local,
         comodo: attrs.comodo,
         descricao: '',
         floorId: null,
@@ -577,7 +688,7 @@ export const useStore = create<State>((set, get) => {
       commit({
         ...p,
         points: p.points.map((pt) =>
-          pt.id === id ? { ...pt, floorId: p.activeFloorId, x, y } : pt,
+          pt.id === id ? { ...pt, floorId: drawFloorId(p), x, y } : pt,
         ),
       });
       set({ placingPointId: null, selection: { kind: 'point', id } });
@@ -674,7 +785,7 @@ export const useStore = create<State>((set, get) => {
         f.openings = [];
         f.rooms = [];
       });
-      const floorId = p.activeFloorId;
+      const floorId = drawFloorId(p);
       const points = get().project.points.map((pt) =>
         pt.floorId === floorId ? { ...pt, floorId: null, x: 0, y: 0 } : pt,
       );
@@ -748,3 +859,84 @@ export const useStore = create<State>((set, get) => {
     },
   };
 });
+
+// ---------------------------------------------------------------------------
+// Gravação em pasta do computador
+// ---------------------------------------------------------------------------
+
+setProjetoAtivo(useStore.getState().project.id);
+useStore.subscribe((s) => setProjetoAtivo(s.project.id));
+
+aoSalvar((estado) => {
+  const d = useStore.getState().disco;
+  if (d.pasta === null) return;
+  useStore.setState({ disco: { ...d, estado, em: estado === 'salvo' ? Date.now() : d.em } });
+});
+
+window.addEventListener('beforeunload', descarregarPendentes);
+window.addEventListener('pagehide', descarregarPendentes);
+
+// Envia um projeto inteiro (dados, fundos e miniaturas) que só existia no navegador.
+async function enviarProjetoCompleto(p: Project & { updatedAt?: number }) {
+  if (!(await gravarNoDisco(p))) return;
+  for (const f of p.floors) {
+    if (!f.bg) continue;
+    const blob = await idbGet<Blob>(`bg:${f.id}`);
+    if (blob) await gravarArquivo('fundos', f.id, blob, p.id);
+  }
+  for (const ph of p.photos) {
+    const blob = await idbGet<Blob>(`thumb:${ph.id}`);
+    if (blob) await gravarArquivo('miniaturas', ph.id, blob, p.id);
+  }
+}
+
+// Ao abrir o sistema: iguala o navegador e a pasta (vale a versão mais recente de cada projeto).
+export async function sincronizarComDisco() {
+  const lista = await listarDisco();
+  if (!lista) {
+    useStore.setState({ disco: { pasta: null, estado: 'falhou', em: 0 } });
+    return;
+  }
+  const lerLocal = (id: string): (Project & { updatedAt?: number }) | null => {
+    try {
+      const raw = localStorage.getItem(KEY_PREFIX + id);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+  // excluídos em outro navegador: saem daqui também
+  for (const id of lista.excluidos) localStorage.removeItem(KEY_PREFIX + id);
+
+  const noDisco = new Map(lista.projetos.map((m) => [m.id, m]));
+  // pasta -> navegador
+  for (const m of lista.projetos) {
+    const loc = lerLocal(m.id);
+    if (!loc || m.updatedAt > (loc.updatedAt ?? 0)) {
+      const p = await lerDoDisco(m.id);
+      if (p) localStorage.setItem(KEY_PREFIX + m.id, JSON.stringify(p));
+    }
+  }
+  // navegador -> pasta
+  for (const meta of listProjects()) {
+    const loc = lerLocal(meta.id);
+    if (!loc || intocado(loc)) continue;
+    const d = noDisco.get(meta.id);
+    if (!d) await enviarProjetoCompleto(loc);
+    else if ((loc.updatedAt ?? 0) > d.updatedAt) await gravarNoDisco(loc);
+  }
+
+  const st = useStore.getState();
+  const patch: Partial<State> = {
+    projects: listProjects(),
+    disco: { pasta: lista.pasta, estado: 'salvo', em: Date.now() },
+  };
+  // na tela inicial, recarrega o projeto corrente (pode ter vindo uma versão mais nova da pasta)
+  if (st.home) {
+    const atual = loadById(st.project.id) ?? (patch.projects!.length ? loadById(patch.projects![0].id) : null);
+    if (atual) patch.project = atual;
+  }
+  useStore.setState(patch);
+}
+
+void sincronizarComDisco();

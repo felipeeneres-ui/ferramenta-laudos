@@ -46,6 +46,7 @@ type Drag =
   | { type: 'label-move'; id: string }
   | { type: 'point-label'; id: string } // move só o rótulo (linha de chamada)
   | { type: 'bg-move'; start: Vec; ox: number; oy: number }
+  | { type: 'sat-move'; start: Vec; ox: number; oy: number }
   | null;
 
 export function Canvas() {
@@ -76,12 +77,15 @@ export function Canvas() {
   const addFreeLabel = useStore((s) => s.addFreeLabel);
   const updateFreeLabel = useStore((s) => s.updateFreeLabel);
   const updateFloorBg = useStore((s) => s.updateFloorBg);
+  const updateSat = useStore((s) => s.updateSat);
   const traceStyle = useStore((s) => s.traceStyle);
 
   const traces = floor.traces ?? [];
   const labels = floor.labels ?? [];
   const bg = floor.bg ?? null;
   const bgUrl = useBgUrl(floor.id, bg?.rev ?? 0, !!bg);
+  const sat = floor.sat ?? null;
+  const satUrl = useBgUrl(`${floor.id}_sat`, sat?.rev ?? 0, !!sat);
 
   // snap condicional: respeita o toggle de snap à grade
   const gsnap = (v: number) => (snapEnabled ? snap(v) : Math.round(v));
@@ -242,6 +246,15 @@ export function Canvas() {
         return { type: 'bg-move', start: p, ox: bg.x, oy: bg.y };
       }
     }
+    // imagem de satélite (arrastar quando destravada)
+    if (sat && !sat.locked) {
+      const sw = sat.w * sat.scale;
+      const sh = sat.h * sat.scale;
+      if (p.x >= sat.x && p.x <= sat.x + sw && p.y >= sat.y && p.y <= sat.y + sh) {
+        setSelection(null);
+        return { type: 'sat-move', start: p, ox: sat.x, oy: sat.y };
+      }
+    }
     setSelection(null);
     return null;
   }
@@ -368,6 +381,8 @@ export function Canvas() {
       updateFreeLabel(d.id, { x: Math.round(p.x), y: Math.round(p.y) });
     } else if (d.type === 'bg-move') {
       updateFloorBg({ x: Math.round(d.ox + (p.x - d.start.x)), y: Math.round(d.oy + (p.y - d.start.y)) });
+    } else if (d.type === 'sat-move') {
+      updateSat({ x: Math.round(d.ox + (p.x - d.start.x)), y: Math.round(d.oy + (p.y - d.start.y)) });
     }
   }
 
@@ -453,18 +468,31 @@ export function Canvas() {
           <rect x={-4000} y={-4000} width={8000} height={8000} fill="url(#g-minor)" />
           <rect x={-4000} y={-4000} width={8000} height={8000} fill="url(#g-major)" />
 
-          {/* imagem de fundo (satélite/planta) */}
-          {bg && bgUrl && (
-            <image
-              href={bgUrl}
-              x={bg.x}
-              y={bg.y}
-              width={bg.w * bg.scale}
-              height={bg.h * bg.scale}
-              opacity={bg.opacity}
-              preserveAspectRatio="none"
-              style={{ pointerEvents: 'none' }}
-            />
+          {/* imagem de satélite (por baixo) e imagem de fundo (desenho/planta) */}
+          {[
+            { im: sat, url: satUrl, k: 'sat' },
+            { im: bg, url: bgUrl, k: 'bg' },
+          ].map(
+            ({ im, url, k }) =>
+              im &&
+              url && (
+                <image
+                  key={k}
+                  href={url}
+                  x={im.x}
+                  y={im.y}
+                  width={im.w * im.scale}
+                  height={im.h * im.scale}
+                  opacity={im.opacity}
+                  preserveAspectRatio="none"
+                  transform={
+                    im.rot
+                      ? `rotate(${im.rot} ${im.x + (im.w * im.scale) / 2} ${im.y + (im.h * im.scale) / 2})`
+                      : undefined
+                  }
+                  style={{ pointerEvents: 'none' }}
+                />
+              ),
           )}
 
           {/* traçados coloridos */}

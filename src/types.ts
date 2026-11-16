@@ -104,6 +104,7 @@ export interface FloorBg {
   opacity: number; // 0..1
   locked: boolean;
   rev: number; // muda a cada troca de imagem (recarrega o blob)
+  rot?: number; // giro em graus, em torno do centro da imagem (ausente = 0)
 }
 
 // Traçado colorido (polilinha grossa) — marcação gráfica sobre satélite/planta.
@@ -136,6 +137,20 @@ export interface Floor {
   traces?: Trace[];
   labels?: FreeLabel[];
   bg?: FloorBg | null;
+  // imagem de satélite, desenhada POR BAIXO do fundo (blob em bg:<floorId>_sat)
+  sat?: FloorBg | null;
+}
+
+// Janela do desenho gerado pelo "Croqui de rua": permite encaixar a imagem de
+// satélite no mesmo enquadramento. Coordenadas em metros, a partir de (lat, lon).
+export interface CroquiGeo {
+  lat: number;
+  lon: number;
+  cx: number;
+  cy: number;
+  rot: number; // graus, anti-horário
+  larg: number; // m
+  alt: number; // m
 }
 
 // ----- Fotos -----
@@ -217,6 +232,15 @@ export interface Project {
   points: Point[];
   photos: Photo[];
   croquiPointSize?: number; // tamanho dos pinos de anomalia no croqui (ausente = 18)
+  // Croqui único (vistoria de rua): um desenho só, guardado na primeira camada.
+  // As camadas viram "ruas": grupos de fotos e de pontos, sem desenho próprio.
+  croquiUnico?: boolean;
+  croquiGeo?: CroquiGeo;
+}
+
+// Camada que guarda o desenho em uso: a ativa ou, no croqui único, sempre a primeira.
+export function drawFloorId(project: Project): string {
+  return project.croquiUnico ? project.floors[0].id : project.activeFloorId;
 }
 
 export const DEFAULT_CROQUI_POINT = 18;
@@ -225,9 +249,11 @@ export const DEFAULT_CROQUI_POINT = 18;
 // vistoria de rua) funciona ela mesma como "cômodo": os pontos são agrupados
 // na tabela pelo nome da camada.
 export function floorAsComodo(project: Project, floorId: string | null | undefined): string {
-  if (!floorId || project.floors.length < 2) return '';
+  if (!floorId) return '';
   const f = project.floors.find((x) => x.id === floorId);
-  if (!f || f.rooms.some((r) => r.nome.trim())) return '';
+  if (!f) return '';
+  if (project.croquiUnico) return f.nome.trim(); // no croqui único, a camada É a rua
+  if (project.floors.length < 2 || f.rooms.some((r) => r.nome.trim())) return '';
   return f.nome.trim();
 }
 

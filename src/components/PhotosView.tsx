@@ -82,6 +82,17 @@ export function PhotosView() {
         .project.photos.filter((p) => p.floorId === floorId)
         .map((p) => p.nome),
     );
+    const daCamada = new Map(
+      useStore
+        .getState()
+        .project.photos.filter((p) => p.floorId === floorId)
+        .map((p) => [p.nome, p.id]),
+    );
+    // foto já importada: só religa o arquivo original (ex.: projeto aberto em outro navegador)
+    for (const it of items) {
+      const id = daCamada.get(it.name);
+      if (id && it.handle) await putFileHandle(id, it.handle);
+    }
     const imgs = items.filter(
       (f) => IMG_RE.test(f.name) && !/_edit\.png$/i.test(f.name) && !jaTem.has(f.name),
     );

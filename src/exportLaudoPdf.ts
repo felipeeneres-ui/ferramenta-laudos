@@ -24,8 +24,14 @@ async function floorPng(
     const blob = await getBg(floor.id);
     if (blob) bgDataUrl = await blobToDataUrl(blob);
   }
+  let satDataUrl: string | undefined;
+  if (floor.sat) {
+    const blob = await getBg(`${floor.id}_sat`);
+    if (blob) satDataUrl = await blobToDataUrl(blob);
+  }
   const { svg, w, h } = buildSvg(floor, project.anomalyTypes, pts, project.croquiPointSize ?? 18, {
     bgDataUrl,
+    satDataUrl,
   });
   return new Promise((res, rej) => {
     const img = new Image();
@@ -108,7 +114,7 @@ export async function buildLaudoPdf(project: Project): Promise<{ blob: Blob; fal
     ensure(imgH + 8);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text(floor.nome, M, y + 4);
+    doc.text(project.croquiUnico ? 'Croqui geral' : floor.nome, M, y + 4);
     doc.setFont('helvetica', 'normal');
     y += 6;
     doc.addImage(png.url, 'PNG', M + (cw - imgW) / 2, y, imgW, imgH);

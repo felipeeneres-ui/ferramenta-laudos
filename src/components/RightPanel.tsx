@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { useStore } from '../store';
+import { putBg } from '../db';
+import { baixarSatelite } from '../satelite';
 import { ANNOTATION_COLORS, LOCAL_COLORS, LOCAL_LABEL, comodoOptions, type Local } from '../types';
 import { wallLength } from '../geometry';
 import {
@@ -9,6 +12,7 @@ import {
   IconLock,
   IconLockOpen,
   IconCopy,
+  IconSatellite,
 } from '@tabler/icons-react';
 
 const LOCALS: Local[] = ['parede', 'piso', 'teto'];
@@ -69,7 +73,38 @@ export function RightPanel() {
   const updateFloorBg = useStore((s) => s.updateFloorBg);
   const setFloorBg = useStore((s) => s.setFloorBg);
   const copyBgToAllFloors = useStore((s) => s.copyBgToAllFloors);
+  const setSat = useStore((s) => s.setSat);
+  const updateSat = useStore((s) => s.updateSat);
   const bg = floor.bg ?? null;
+  const sat = floor.sat ?? null;
+  const unico = !!project.croquiUnico;
+  const [satBusy, setSatBusy] = useState<string | null>(null);
+
+  // Baixa a imagem de satélite já encaixada no desenho gerado pelo "Croqui de rua".
+  async function satAutomatico() {
+    if (!project.croquiGeo || !bg) return;
+    setSatBusy('Baixando a imagem de satélite…');
+    try {
+      const r = await baixarSatelite(project.croquiGeo, setSatBusy);
+      await putBg(`${floor.id}_sat`, r.blob);
+      setSat({
+        x: bg.x,
+        y: bg.y,
+        w: r.w,
+        h: r.h,
+        scale: (bg.w * bg.scale) / r.w,
+        opacity: 1,
+        locked: true,
+        rev: Date.now(),
+      });
+      // deixa o desenho meio transparente, para o satélite aparecer
+      if (bg.opacity > 0.7) updateFloorBg({ opacity: 0.6 });
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSatBusy(null);
+    }
+  }
 
   async function fundoEmTodas() {
     const outras = project.floors.filter((f) => f.id !== floor.id);
@@ -128,7 +163,7 @@ export function RightPanel() {
                   <span className="dot" style={{ background: LOCAL_COLORS[pt.local], width: 10, height: 10, borderRadius: '50%' }} />
                   <span className="prefix">{t?.prefix}{pt.numero}</span>
                   <span style={{ flex: 1, color: 'var(--ink-soft)', fontSize: 12 }}>
-                    {pt.comodo || 'sem cômodo'}
+                    {pt.comodo || (unico ? 'sem rua' : 'sem cômodo')}
                   </span>
                 </div>
               );
@@ -300,14 +335,14 @@ export function RightPanel() {
 
       {bg && !selection && tool === 'select' && (
         <section>
-          <h3>Imagem de fundo</h3>
+          <h3>{unico ? 'Desenho da quadra' : 'Imagem de fundo'}</h3>
           <div className="field">
             <label>
               Opacidade <span className="val">{Math.round(bg.opacity * 100)}%</span>
             </label>
             <input
               type="range"
-              min={10}
+              min={0}
               max={100}
               value={Math.round(bg.opacity * 100)}
               onChange={(e) => updateFloorBg({ opacity: Number(e.target.value) / 100 })}
@@ -328,7 +363,7 @@ export function RightPanel() {
             {bg.locked ? <IconLock size={15} /> : <IconLockOpen size={15} />}
             {bg.locked ? 'Travada (destravar p/ mover)' : 'Destravada (arraste p/ mover)'}
           </button>
-          {project.floors.length > 1 && (
+          {project.floors.length > 1 && !unico && (
             <button className="panel-btn" onClick={fundoEmTodas}>
               <IconCopy size={15} /> Usar em todas as camadas
             </button>
@@ -341,6 +376,102 @@ export function RightPanel() {
           >
             <IconTrash size={15} /> Remover fundo
           </button>
+        </section>
+      )}
+
+      {(sat || (bg && project.croquiGeo)) && !selection && tool === 'select' && (
+        <section>
+          <h3>
+            <IconSatellite size={15} style={{ verticalAlign: -2, marginRight: 5 }} />
+            Imagem de satélite
+          </h3>
+          {sat && (
+            <>
+              <div className="field">
+                <label>
+                  Opacidade <span className="val">{Math.round(sat.opacity * 100)}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(sat.opacity * 100)}
+                  onChange={(e) => updateSat({ opacity: Number(e.target.value) / 100 })}
+                />
+              </div>
+              {!sat.locked && (
+                <>
+                  <div className="field">
+                    <label>Tamanho</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        ['−−', 1 / 1.1],
+                        ['−', 1 / 1.01],
+                        ['+', 1.01],
+                        ['++', 1.1],
+                      ].map(([t, k]) => (
+                        <button
+                          key={t}
+                          className="panel-btn"
+                          style={{ flex: 1 }}
+                          onClick={() => {
+                            // aumenta ou reduz mantendo o centro no lugar
+                            const w0 = sat.w * sat.scale;
+                            const h0 = sat.h * sat.scale;
+                            const sc = sat.scale * (k as number);
+                            updateSat({
+                              scale: sc,
+                              x: sat.x + (w0 - sat.w * sc) / 2,
+                              y: sat.y + (h0 - sat.h * sc) / 2,
+                            });
+                          }}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>
+                      Giro <span className="val">{(sat.rot ?? 0).toFixed(1)}°</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={-180}
+                      max={180}
+                      step={0.5}
+                      value={sat.rot ?? 0}
+                      onChange={(e) => updateSat({ rot: Number(e.target.value) })}
+                    />
+                  </div>
+                </>
+              )}
+              <button className="panel-btn" onClick={() => updateSat({ locked: !sat.locked })}>
+                {sat.locked ? <IconLock size={15} /> : <IconLockOpen size={15} />}
+                {sat.locked ? 'Travada (destravar p/ ajustar)' : 'Destravada (arraste p/ mover)'}
+              </button>
+            </>
+          )}
+          {bg && project.croquiGeo && (
+            <button className="panel-btn" onClick={satAutomatico} disabled={!!satBusy}>
+              <IconSatellite size={15} /> {sat ? 'Baixar de novo, já alinhada' : 'Baixar automática, já alinhada'}
+            </button>
+          )}
+          {satBusy && <p className="muted">{satBusy}</p>}
+          {sat && (
+            <button
+              className="panel-btn danger"
+              onClick={() => {
+                if (confirm('Remover a imagem de satélite?')) setSat(null);
+              }}
+            >
+              <IconTrash size={15} /> Remover satélite
+            </button>
+          )}
+          <p className="muted">
+            O satélite fica por baixo do desenho: ajuste a opacidade dos dois até ficar bom. Para usar um recorte do
+            Google Maps, copie a imagem e cole com Ctrl+V; depois destrave para mover, redimensionar e girar.
+          </p>
         </section>
       )}
 
@@ -387,7 +518,7 @@ export function RightPanel() {
             {selPoint.numero}
           </h3>
           <div className="field">
-            <label>Cômodo</label>
+            <label>{unico ? 'Rua' : 'Cômodo'}</label>
             <input
               type="text"
               list="comodos-list"
@@ -478,8 +609,8 @@ export function RightPanel() {
         </section>
       )}
 
-      {/* Local (cor) — visível ao colocar/editar ponto */}
-      {showPointControls && (
+      {/* Local (cor) — visível ao colocar/editar ponto. No croqui único o pino tem uma cor só. */}
+      {showPointControls && !unico && (
         <section>
           <h3>
             Local <span style={{ fontWeight: 400, color: 'var(--ink-faint)' }}>(cor)</span>

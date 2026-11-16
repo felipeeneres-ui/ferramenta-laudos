@@ -40,15 +40,20 @@ export default function App() {
 
   async function handleExport() {
     const { project } = useStore.getState();
-    const floor = project.floors.find((f) => f.id === project.activeFloorId) ?? project.floors[0];
+    const floor = useStore.getState().activeFloor();
     const pts = project.points.filter((p) => p.floorId === floor.id);
-    const name = `${project.nome || 'imovel'} - ${floor.nome}.png`;
+    const name = `${project.nome || 'imovel'} - ${project.croquiUnico ? 'Croqui' : floor.nome}.png`;
     let bgDataUrl: string | undefined;
+    let satDataUrl: string | undefined;
     if (floor.bg) {
       const blob = await getBg(floor.id);
       if (blob) bgDataUrl = await blobToDataUrl(blob);
     }
-    exportFloorPng(floor, project.anomalyTypes, pts, name, project.croquiPointSize ?? 18, bgDataUrl);
+    if (floor.sat) {
+      const blob = await getBg(`${floor.id}_sat`);
+      if (blob) satDataUrl = await blobToDataUrl(blob);
+    }
+    exportFloorPng(floor, project.anomalyTypes, pts, name, project.croquiPointSize ?? 18, bgDataUrl, satDataUrl);
   }
 
   const croquiPane = (

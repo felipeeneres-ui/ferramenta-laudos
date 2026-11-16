@@ -25,6 +25,7 @@ export function ProjectsHome() {
   const createProject = useStore((s) => s.createProject);
   const deleteProject = useStore((s) => s.deleteProject);
   const loadFromJSON = useStore((s) => s.loadFromJSON);
+  const disco = useStore((s) => s.disco);
   const [novoNome, setNovoNome] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -90,6 +91,14 @@ export function ProjectsHome() {
             <IconFolderOpen size={16} /> Importar (.json)
           </button>
         </div>
+
+        <p className={`phome-disco${disco.pasta ? '' : ' aviso'}`}>
+          {disco.estado === 'verificando'
+            ? 'Conferindo a pasta dos projetos…'
+            : disco.pasta
+              ? `Projetos gravados automaticamente em: ${disco.pasta}`
+              : 'Atenção: a gravação em pasta não está ativa. Os projetos estão só neste navegador. Feche e abra o sistema pelo atalho.'}
+        </p>
 
         {projects.length === 0 ? (
           <p className="empty" style={{ padding: 40, textAlign: 'center' }}>
