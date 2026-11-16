@@ -24,7 +24,6 @@ interface P {
 const gf: any = new GeometryFactory();
 const CAP_ROUND = 1;
 const CAP_FLAT = 2;
-const CAP_SQUARE = 3;
 const JOIN_ROUND = 1;
 const JOIN_MITRE = 2;
 
@@ -390,12 +389,39 @@ export function desenhar(
   // trechos vistoriados: pista em azul claro e eixo em traço-ponto
   const sel = q.ruas.map((r) => r.nome).filter((n) => destaque === null || destaque === n);
   const trechos = new Map<string, Geo>();
-  for (const nome of sel) trechos.set(nome, DouglasPeuckerSimplifier.simplify(trechoDaRua(q, nome), 0.8));
+  for (const r of q.ruas) trechos.set(r.nome, DouglasPeuckerSimplifier.simplify(trechoDaRua(q, r.nome), 0.8));
+  // Cada faixa vai de meio-fio a meio-fio e, nas esquinas, avança exatamente até o
+  // meio-fio oposto da rua que cruza (metade da largura dela), para fechar o cruzamento
+  // sem degraus nem sobras.
+  const pontas = (nome: string) => {
+    const c = coords(trechos.get(nome));
+    return [c[0], c[c.length - 1]];
+  };
+  const avanco = (nome: string, ponta: P): number => {
+    for (const r of q.ruas)
+      if (r.nome !== nome && pontas(r.nome).some((e) => Math.hypot(e.x - ponta.x, e.y - ponta.y) < 2)) return r.largura / 2;
+    return 0;
+  };
   const faixas = sel.map((nome) => {
     const larg = q.ruas.find((r) => r.nome === nome)!.largura;
-    return buf(trechos.get(nome), larg / 2, destaque === null ? CAP_SQUARE : CAP_FLAT, JOIN_MITRE);
+    const c = coords(trechos.get(nome));
+    const estender = (de: P, ate: P, d: number): P => {
+      const L = Math.hypot(ate.x - de.x, ate.y - de.y) || 1;
+      return { x: ate.x + ((ate.x - de.x) / L) * d, y: ate.y + ((ate.y - de.y) / L) * d };
+    };
+    const ini = estender(c[1], c[0], avanco(nome, c[0]));
+    const fim = estender(c[c.length - 2], c[c.length - 1], avanco(nome, c[c.length - 1]));
+    return buf(linha([ini, ...c.slice(1, -1), fim]), larg / 2, CAP_FLAT, JOIN_MITRE);
   });
-  if (faixas.length) o.push(`<path d="${poly(uniao(faixas))}" fill="${C_PISTA_SEL}" fill-rule="evenodd"/>`);
+  if (faixas.length) {
+    let realce = uniao(faixas);
+    // cantos arredondados das esquinas: pedacinhos de pista que o arredondamento do
+    // meio-fio criou; entram no realce os que encostam nele
+    const pistaReal = janela.difference(calc);
+    const cantos = partes(pistaReal.difference(q.pistas), 'Polygon').filter((c) => c.getArea() > 0.01 && c.intersects(buf(realce, 0.1)));
+    if (cantos.length) realce = uniao([realce, ...cantos.map((c) => buf(c, 0.05))]);
+    o.push(`<path d="${poly(realce.intersection(buf(pistaReal, 0.05)))}" fill="${C_PISTA_SEL}" fill-rule="evenodd"/>`);
+  }
   for (const nome of sel)
     o.push(
       `<path d="${path(coords(trechos.get(nome)))}" fill="none" stroke="${NAVY}" stroke-width="${f(Math.max(1, 0.08 * s))}" ` +
