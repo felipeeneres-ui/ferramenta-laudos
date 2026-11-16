@@ -3,7 +3,7 @@ import { IconCopy, IconCheck, IconFileTypeDocx, IconTextIncrease } from '@tabler
 import { useStore } from '../store';
 import { renderEditedDataUrl, type PointInfo } from '../renderEdited';
 import { buildLaudoDocx } from '../exportLaudoDocx';
-import { LOCAL_COLORS, type Photo } from '../types';
+import { LOCAL_COLORS, comparePhotos, type Photo } from '../types';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -81,7 +81,7 @@ export function LaudoView() {
 
   const photos = project.photos
     .filter((p) => p.classification === 'laudo')
-    .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { numeric: true }));
+    .sort(comparePhotos(project));
 
   const legendaDe = (p: Photo, n: number) => {
     const d = p.descricao.trim();

@@ -9,6 +9,7 @@ import {
   dist,
   closestOnSegment,
   wallVectors,
+  pillWidth,
   type Vec,
 } from '../geometry';
 import { LOCAL_COLORS, type FreeLabel, type OpeningKind, type Wall } from '../types';
@@ -89,6 +90,15 @@ export function Canvas() {
   // pontos do projeto posicionados neste pavimento
   const points = project.points.filter((p) => p.floorId === floor.id);
 
+  const pointSz = project.croquiPointSize ?? 18;
+  const pointLabel = (pt: { typeId: string; numero: number }) =>
+    `${project.anomalyTypes.find((x) => x.id === pt.typeId)?.prefix ?? '?'}${pt.numero}`;
+  // alça "puxar rótulo" do ponto selecionado que ainda não tem linha de chamada
+  const pullHandle = (pt: { x: number; y: number; typeId: string; numero: number }): Vec => ({
+    x: pt.x + pillWidth(pointLabel(pt), pointSz) / 2 + 9 / view.scale,
+    y: pt.y - pointSz / 2 - 9 / view.scale,
+  });
+
   const [wallStart, setWallStart] = useState<Vec | null>(null);
   const [tracePts, setTracePts] = useState<Vec[]>([]);
   const [cursor, setCursor] = useState<Vec>({ x: 0, y: 0 });
@@ -128,11 +138,25 @@ export function Canvas() {
     };
   }
 
-  function hitTest(p: Vec): Drag {
+  function hitTest(p: Vec, alt = false): Drag {
+    // alça do ponto selecionado: puxa o rótulo e cria a linha de chamada
+    if (selection?.kind === 'point') {
+      const sp = points.find((x) => x.id === selection.id);
+      if (sp && sp.lx == null && dist(p, pullHandle(sp)) < 9 / view.scale) {
+        updatePoint(sp.id, { lx: Math.round(p.x), ly: Math.round(p.y) });
+        return { type: 'point-label', id: sp.id };
+      }
+    }
     // pontos (com linha de chamada: âncora move o local; rótulo move o balão)
     for (let i = points.length - 1; i >= 0; i--) {
       const pt = points[i];
       const hasLeader = pt.lx != null && pt.ly != null;
+      // Alt + arrastar um ponto sem chamada: o local fica, o rótulo sai junto com o mouse
+      if (alt && !hasLeader && dist(p, pt) < 12 / view.scale) {
+        setSelection({ kind: 'point', id: pt.id });
+        updatePoint(pt.id, { lx: Math.round(p.x), ly: Math.round(p.y) });
+        return { type: 'point-label', id: pt.id };
+      }
       if (hasLeader && dist(p, pt) < 9 / view.scale) {
         setSelection({ kind: 'point', id: pt.id });
         return { type: 'point', id: pt.id };
@@ -290,7 +314,7 @@ export function Canvas() {
     }
 
     // select
-    dragRef.current = hitTest(p);
+    dragRef.current = hitTest(p, e.altKey);
   }
 
   function onPointerMove(e: React.PointerEvent) {
@@ -349,6 +373,13 @@ export function Canvas() {
 
   function onPointerUp(e: React.PointerEvent) {
     svgRef.current?.releasePointerCapture(e.pointerId);
+    const d = dragRef.current;
+    // rótulo solto em cima do próprio local: recolhe a linha de chamada
+    if (d?.type === 'point-label') {
+      const pt = useStore.getState().project.points.find((x) => x.id === d.id);
+      if (pt && pt.lx != null && pt.ly != null && dist(pt, { x: pt.lx, y: pt.ly }) < pointSz * 0.6)
+        updatePoint(d.id, { lx: undefined, ly: undefined });
+    }
     dragRef.current = null;
   }
 
@@ -589,12 +620,13 @@ export function Canvas() {
 
           {/* pontos */}
           {points.map((pt) => {
-            const type = project.anomalyTypes.find((x) => x.id === pt.typeId);
-            const label = `${type?.prefix ?? '?'}${pt.numero}`;
+            const label = pointLabel(pt);
             const sel = selection?.kind === 'point' && selection.id === pt.id;
-            const sz = project.croquiPointSize ?? 18;
+            const sz = pointSz;
             const fs = sz * 0.56;
-            const w = sz * 0.72 + label.length * (sz * 0.28);
+            const w = pillWidth(label, sz);
+            const halo = Math.max(1, sz * 0.07);
+            const lw = Math.max(1.2, sz * 0.09);
             const hasLeader = pt.lx != null && pt.ly != null;
             const px = hasLeader ? pt.lx! : pt.x;
             const py = hasLeader ? pt.ly! : pt.y;
@@ -602,14 +634,9 @@ export function Canvas() {
               <g key={pt.id} style={{ userSelect: 'none' }}>
                 {hasLeader && (
                   <>
-                    <line
-                      x1={pt.x}
-                      y1={pt.y}
-                      x2={px}
-                      y2={py}
-                      stroke={LOCAL_COLORS[pt.local]}
-                      strokeWidth={Math.max(1.2, sz * 0.09)}
-                    />
+                    {/* contorno branco: mantém a linha legível sobre a imagem de satélite */}
+                    <line x1={pt.x} y1={pt.y} x2={px} y2={py} stroke="#fff" strokeWidth={lw + halo * 2} strokeLinecap="round" />
+                    <line x1={pt.x} y1={pt.y} x2={px} y2={py} stroke={LOCAL_COLORS[pt.local]} strokeWidth={lw} strokeLinecap="round" />
                     <circle
                       cx={pt.x}
                       cy={pt.y}
@@ -640,7 +667,23 @@ export function Canvas() {
                   height={sz}
                   rx={sz / 2}
                   fill={LOCAL_COLORS[pt.local]}
+                  stroke="#fff"
+                  strokeWidth={halo}
                 />
+                {sel && !hasLeader && tool === 'select' && (
+                  <g style={{ cursor: 'grab' }}>
+                    <title>Arraste para puxar o rótulo (linha de chamada)</title>
+                    <circle
+                      cx={pullHandle(pt).x}
+                      cy={pullHandle(pt).y}
+                      r={5.5 / view.scale}
+                      fill="#fff"
+                      stroke="var(--accent)"
+                      strokeWidth={1.5 / view.scale}
+                    />
+                    <circle cx={pullHandle(pt).x} cy={pullHandle(pt).y} r={2 / view.scale} fill="var(--accent)" />
+                  </g>
+                )}
                 <text x={px} y={py} dominantBaseline="central" textAnchor="middle" fontSize={fs} fontFamily="var(--mono)" fontWeight={500} fill="#fff">
                   {label}
                 </text>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { IconX, IconPlus } from '@tabler/icons-react';
 import { useStore } from '../store';
-import { LOCAL_COLORS, LOCAL_LABEL, type Local, type Photo } from '../types';
+import { LOCAL_COLORS, LOCAL_LABEL, comodoOptions, floorAsComodo, type Local, type Photo } from '../types';
 
 const LOCALS: Local[] = ['parede', 'piso', 'teto'];
 
@@ -23,7 +23,7 @@ export function TablePointPicker({ photo, onClose }: Props) {
     () =>
       Array.from(
         new Set([
-          ...project.floors.flatMap((f) => f.rooms.map((r) => r.nome)),
+          ...comodoOptions(project),
           ...project.points.map((p) => p.comodo),
         ]),
       )
@@ -34,7 +34,9 @@ export function TablePointPicker({ photo, onClose }: Props) {
   );
 
   const linkedPoints = project.points.filter((p) => cur.pointIds.includes(p.id));
-  const [comodo, setComodo] = useState(linkedPoints[0]?.comodo || comodos[0] || '');
+  const [comodo, setComodo] = useState(
+    linkedPoints[0]?.comodo || floorAsComodo(project, cur.floorId) || comodos[0] || '',
+  );
   const [newType, setNewType] = useState(project.anomalyTypes[0]?.id ?? 'F');
   const [newLocal, setNewLocal] = useState<Local>('parede');
 

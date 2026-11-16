@@ -46,6 +46,8 @@ import {
   ANNOTATION_COLORS,
   LOCAL_COLORS,
   LOCAL_LABEL,
+  comodoOptions,
+  floorAsComodo,
   type Annotation,
   type AnnotationKind,
   type Photo,
@@ -104,7 +106,8 @@ export function PhotoEditor({ photo, onClose }: Props) {
   const [ptType, setPtType] = useState(project.anomalyTypes[0]?.id ?? 'F');
   const [ptLocal, setPtLocal] = useState<Local>('parede');
   const [ptComodo, setPtComodo] = useState(
-    () => project.floors.flatMap((f) => f.rooms.map((r) => r.nome).filter(Boolean))[0] ?? '',
+    // foto de uma camada sem cômodos (ex.: uma rua): o "cômodo" é a própria camada
+    () => floorAsComodo(project, photo.floorId) || (comodoOptions(project)[0] ?? ''),
   );
   // ponto existente selecionado para reaproveitar (null = criar novo)
   const [placeExisting, setPlaceExisting] = useState<string | null>(null);
@@ -118,9 +121,7 @@ export function PhotoEditor({ photo, onClose }: Props) {
     }
     return m;
   }, [project.points, project.anomalyTypes]);
-  const comodos = Array.from(
-    new Set(project.floors.flatMap((f) => f.rooms.map((r) => r.nome).filter(Boolean))),
-  ).sort((a, b) => a.localeCompare(b, 'pt'));
+  const comodos = comodoOptions(project);
   const photoDescricao = (project.photos.find((p) => p.id === photo.id) ?? photo).descricao;
 
   const [tool, setTool] = useState<EdTool>('select');
@@ -794,7 +795,7 @@ export function PhotoEditor({ photo, onClose }: Props) {
       const current = annsRef.current;
       const blob = await renderEditedBlob({ ...photo, annotations: current, crop, border, adjust }, current, pointInfo);
       await putEdited(photo.id, blob);
-      const written = await writeEditedToFolder(project.id, photo.nome, blob);
+      const written = await writeEditedToFolder(project.id, photo.nome, blob, photo.floorId);
       updatePhoto(photo.id, { annotations: current, crop, border, adjust, edited: true });
       if (written) {
         alert(`Cópia editada salva na pasta: ${written}`);

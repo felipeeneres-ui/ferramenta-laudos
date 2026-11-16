@@ -18,9 +18,11 @@ import {
   type FreeLabel,
   type FloorBg,
   DEFAULT_TYPES,
+  DEFAULT_CROQUI_POINT,
+  floorAsComodo,
 } from './types';
-import { uid } from './geometry';
-import { deletePhotoBlobs, delBg, delDirHandle } from './db';
+import { uid, pillWidth, spreadLabels } from './geometry';
+import { deletePhotoBlobs, delBg, delDirHandle, getBg, putBg } from './db';
 
 // Multiprojeto: cada projeto vive em ferramenta-laudos:project:<id>.
 const KEY_PREFIX = 'ferramenta-laudos:project:';
@@ -215,6 +217,8 @@ interface State {
   updateFreeLabel: (id: string, patch: Partial<FreeLabel>) => void;
   setFloorBg: (bg: FloorBg | null) => void;
   updateFloorBg: (patch: Partial<FloorBg>) => void;
+  copyBgToAllFloors: () => Promise<number>; // mesmo fundo (imagem, posição e escala) nas outras camadas
+  arrangeLabels: () => number; // afasta rótulos sobrepostos da camada ativa
   setAllRoomFonts: (size: number) => void;
   addPoint: (x: number, y: number) => void;
   setCroquiPointSize: (size: number) => void;
@@ -293,7 +297,10 @@ export const useStore = create<State>((set, get) => {
       if (p) {
         void (async () => {
           for (const ph of p.photos) await deletePhotoBlobs(ph.id);
-          for (const f of p.floors) await delBg(f.id);
+          for (const f of p.floors) {
+            await delBg(f.id);
+            await delDirHandle(p.id, f.id);
+          }
           await delDirHandle(p.id);
         })();
       }
@@ -372,7 +379,14 @@ export const useStore = create<State>((set, get) => {
 
     renameFloor: (id, nome) => {
       const p = get().project;
-      commit({ ...p, floors: p.floors.map((f) => (f.id === id ? { ...f, nome } : f)) });
+      const antigo = floorAsComodo(p, id);
+      const floors = p.floors.map((f) => (f.id === id ? { ...f, nome } : f));
+      // pontos que usavam o nome da camada como "cômodo" acompanham o novo nome
+      const points =
+        antigo && nome.trim()
+          ? p.points.map((pt) => (pt.comodo.trim() === antigo ? { ...pt, comodo: nome.trim() } : pt))
+          : p.points;
+      commit({ ...p, floors, points });
     },
 
     setProjectName: (nome) => commit({ ...get().project, nome }),
@@ -470,6 +484,44 @@ export const useStore = create<State>((set, get) => {
       });
     },
 
+    copyBgToAllFloors: async () => {
+      const p = get().project;
+      const src = p.floors.find((f) => f.id === p.activeFloorId);
+      if (!src?.bg) return 0;
+      const blob = await getBg(src.id);
+      if (!blob) return 0;
+      const others = p.floors.filter((f) => f.id !== src.id);
+      for (const f of others) await putBg(f.id, blob);
+      const rev = Date.now();
+      const cur = get().project;
+      commit({
+        ...cur,
+        floors: cur.floors.map((f) => (f.id === src.id ? f : { ...f, bg: { ...src.bg!, rev } })),
+      });
+      return others.length;
+    },
+
+    arrangeLabels: () => {
+      const p = get().project;
+      const sz = p.croquiPointSize ?? DEFAULT_CROQUI_POINT;
+      const items = p.points
+        .filter((pt) => pt.floorId === p.activeFloorId)
+        .map((pt) => {
+          const prefix = p.anomalyTypes.find((t) => t.id === pt.typeId)?.prefix ?? '?';
+          return { id: pt.id, x: pt.x, y: pt.y, lx: pt.lx, ly: pt.ly, w: pillWidth(`${prefix}${pt.numero}`, sz) };
+        });
+      const moved = spreadLabels(items, sz);
+      if (moved.size === 0) return 0;
+      commit({
+        ...p,
+        points: p.points.map((pt) => {
+          const m = moved.get(pt.id);
+          return m ? { ...pt, lx: m.x, ly: m.y } : pt;
+        }),
+      });
+      return moved.size;
+    },
+
     setAllRoomFonts: (size) => {
       get().mutateFloor((f) => {
         f.rooms = f.rooms.map((r) => ({ ...r, fontSize: size }));
@@ -488,7 +540,7 @@ export const useStore = create<State>((set, get) => {
         typeId: type.id,
         numero: max + 1,
         local: get().activeLocal,
-        comodo: '',
+        comodo: floorAsComodo(p, p.activeFloorId),
         descricao: '',
         floorId: p.activeFloorId,
         x,
@@ -632,8 +684,10 @@ export const useStore = create<State>((set, get) => {
 
     addPhotos: (photos) => {
       const p = get().project;
-      const existing = new Set(p.photos.map((x) => x.nome));
-      const fresh = photos.filter((x) => !existing.has(x.nome));
+      // o mesmo nome de arquivo pode se repetir em camadas (pastas) diferentes
+      const key = (x: Photo) => `${x.floorId ?? ''}|${x.nome}`;
+      const existing = new Set(p.photos.map(key));
+      const fresh = photos.filter((x) => !existing.has(key(x)));
       commit({ ...p, photos: [...p.photos, ...fresh] });
     },
 

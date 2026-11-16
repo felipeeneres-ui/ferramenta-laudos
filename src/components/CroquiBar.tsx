@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   IconPlus,
   IconDownload,
@@ -6,6 +6,7 @@ import {
   IconEraser,
   IconMagnet,
   IconPhotoUp,
+  IconArrowsMove,
 } from '@tabler/icons-react';
 import { useStore } from '../store';
 import { putBg } from '../db';
@@ -23,25 +24,60 @@ export function CroquiBar({ onExport }: Props) {
   const snapEnabled = useStore((s) => s.snapEnabled);
   const toggleSnap = useStore((s) => s.toggleSnap);
   const setFloorBg = useStore((s) => s.setFloorBg);
-  const activeFloor = useStore((s) => s.activeFloor());
+  const renameFloor = useStore((s) => s.renameFloor);
+  const arrangeLabels = useStore((s) => s.arrangeLabels);
   const fileRef = useRef<HTMLInputElement>(null);
   const bgRef = useRef<HTMLInputElement>(null);
 
-  async function onBgFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  async function applyBg(file: Blob) {
     try {
       const bmp = await createImageBitmap(file);
       const w = bmp.width;
       const h = bmp.height;
       bmp.close();
-      await putBg(activeFloor.id, file);
+      await putBg(useStore.getState().project.activeFloorId, file);
       // escala inicial: imagem com ~800 unidades de mundo de largura
       setFloorBg({ x: 0, y: 0, w, h, scale: 800 / w, opacity: 1, locked: false, rev: Date.now() });
     } catch {
       alert('Não foi possível ler a imagem.');
     }
+  }
+
+  async function onBgFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) await applyBg(file);
+  }
+
+  // Ctrl+V: imagem copiada (ex.: recorte do satélite do Google Maps) vira o fundo da camada.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      const st = useStore.getState();
+      const fl = st.activeFloor();
+      const msg = fl.bg
+        ? `Trocar a imagem de fundo de "${fl.nome}" pela imagem colada?`
+        : `Usar a imagem colada como fundo de "${fl.nome}"?`;
+      if (confirm(msg)) void applyBg(file);
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function onRename(id: string, atual: string) {
+    const nome = prompt('Nome da camada (ex.: Térreo, Rua das Palmeiras):', atual)?.trim();
+    if (nome && nome !== atual) renameFloor(id, nome);
+  }
+
+  function onArrange() {
+    const n = arrangeLabels();
+    if (n === 0) alert('Nenhum rótulo sobreposto nesta camada.');
   }
 
   function onClear() {
@@ -74,11 +110,13 @@ export function CroquiBar({ onExport }: Props) {
             key={f.id}
             className={`floor-tab${f.id === project.activeFloorId ? ' active' : ''}`}
             onClick={() => setActiveFloor(f.id)}
+            onDoubleClick={() => onRename(f.id, f.nome)}
+            title="Clique duplo para renomear"
           >
             {f.nome}
           </button>
         ))}
-        <button className="icon-btn ghost" title="Adicionar pavimento" onClick={addFloor}>
+        <button className="icon-btn ghost" title="Adicionar camada (pavimento ou rua)" onClick={addFloor}>
           <IconPlus size={16} />
         </button>
       </div>
@@ -95,10 +133,17 @@ export function CroquiBar({ onExport }: Props) {
         <input ref={bgRef} type="file" accept="image/*" hidden onChange={onBgFile} />
         <button
           className="icon-btn ghost"
-          title="Imagem de fundo (satélite/planta) deste pavimento"
+          title="Imagem de fundo (satélite/planta) desta camada. Também dá para colar com Ctrl+V."
           onClick={() => bgRef.current?.click()}
         >
           <IconPhotoUp size={16} /> Fundo
+        </button>
+        <button
+          className="icon-btn ghost"
+          title="Afasta os rótulos que estão uns sobre os outros, criando linhas de chamada"
+          onClick={onArrange}
+        >
+          <IconArrowsMove size={16} /> Organizar rótulos
         </button>
         <button className="icon-btn ghost" title="Importar croqui (.json)" onClick={() => fileRef.current?.click()}>
           <IconFileImport size={16} /> Importar croqui

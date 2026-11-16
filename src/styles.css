@@ -1670,3 +1670,10 @@ button {
   border-radius: 50%;
   flex: none;
 }
+
+/* contador de fotos nas abas de camada */
+.floor-tab .tab-count {
+  margin-left: 4px;
+  font-size: 11px;
+  opacity: 0.65;
+}

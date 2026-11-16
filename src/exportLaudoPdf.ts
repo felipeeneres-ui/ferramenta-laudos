@@ -10,7 +10,7 @@ type AutoTableDoc = jsPDF & {
 };
 import { renderEditedDataUrl, type PointInfo } from './renderEdited';
 import { getBg, blobToDataUrl } from './db';
-import { LOCAL_COLORS, type Project, type Point } from './types';
+import { LOCAL_COLORS, comparePhotos, type Project, type Point } from './types';
 
 // Renderiza o croqui de um pavimento (SVG) para PNG (data URL).
 async function floorPng(
@@ -200,7 +200,7 @@ export async function buildLaudoPdf(project: Project): Promise<{ blob: Blob; fal
 
   const laudo = project.photos
     .filter((p) => p.classification === 'laudo')
-    .sort((a, b) => a.nome.localeCompare(b.nome, undefined, { numeric: true }));
+    .sort(comparePhotos(project));
 
   let n = 0;
   let falhas = 0;

@@ -202,6 +202,8 @@ export interface Photo {
   rotate?: number; // rotação em passos de 90° (0/90/180/270); width/height já refletem
   straighten?: number; // endireitar fino em graus (gira a base sob as anotações)
   edited: boolean;
+  // camada (pavimento ou rua) a que a foto pertence; ausente = foto antiga, sem camada
+  floorId?: string;
 }
 
 export type AppView = 'croqui' | 'fotos' | 'split' | 'tabela' | 'laudo' | 'cliente';
@@ -218,6 +220,34 @@ export interface Project {
 }
 
 export const DEFAULT_CROQUI_POINT = 18;
+
+// Uma camada sem rótulos de cômodo (ex.: "Rua X" sobre imagem de satélite, em
+// vistoria de rua) funciona ela mesma como "cômodo": os pontos são agrupados
+// na tabela pelo nome da camada.
+export function floorAsComodo(project: Project, floorId: string | null | undefined): string {
+  if (!floorId || project.floors.length < 2) return '';
+  const f = project.floors.find((x) => x.id === floorId);
+  if (!f || f.rooms.some((r) => r.nome.trim())) return '';
+  return f.nome.trim();
+}
+
+// Opções de cômodo: rótulos de cômodo dos croquis + camadas que valem como cômodo.
+export function comodoOptions(project: Project): string[] {
+  const out = new Set<string>();
+  for (const f of project.floors) {
+    for (const r of f.rooms) if (r.nome.trim()) out.add(r.nome.trim());
+    const own = floorAsComodo(project, f.id);
+    if (own) out.add(own);
+  }
+  return Array.from(out).sort((a, b) => a.localeCompare(b, 'pt'));
+}
+
+// Ordem das fotos nas saídas: pela ordem das camadas e, dentro de cada uma, pelo nome.
+export function comparePhotos(project: Project): (a: Photo, b: Photo) => number {
+  const idx = new Map(project.floors.map((f, i) => [f.id, i]));
+  const pos = (p: Photo) => (p.floorId != null ? (idx.get(p.floorId) ?? -1) : -1);
+  return (a, b) => pos(a) - pos(b) || a.nome.localeCompare(b.nome, undefined, { numeric: true });
+}
 
 // Paleta: cores da marca CRAFT (azul-marinho, ardósia, cinzas) extraídas do
 // cabeçalho/rodapé do laudo, mais as cores essenciais de marcação.

@@ -66,16 +66,21 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
 
 // Handle da pasta da vistoria (File System Access), POR PROJETO. Persistido
 // para reabrir a mesma pasta entre sessões (com nova permissão quando necessário).
-export const saveDirHandle = (projectId: string, h: FileSystemDirectoryHandle) =>
-  set(`dirHandle:${projectId}`, h);
-export async function loadDirHandle(projectId: string) {
+// Com floorId, a pasta é a DAQUELA camada (ex.: uma pasta de fotos por rua).
+const dirKey = (projectId: string, floorId?: string) =>
+  floorId ? `dirHandle:${projectId}:${floorId}` : `dirHandle:${projectId}`;
+export const saveDirHandle = (projectId: string, h: FileSystemDirectoryHandle, floorId?: string) =>
+  set(dirKey(projectId, floorId), h);
+export async function loadDirHandle(projectId: string, floorId?: string) {
+  // foto de uma camada: só a pasta da própria camada (nunca grava na pasta de outra)
+  if (floorId) return get<FileSystemDirectoryHandle>(dirKey(projectId, floorId));
   // fallback: chave global antiga (formato de projeto único)
   return (
-    (await get<FileSystemDirectoryHandle>(`dirHandle:${projectId}`)) ??
+    (await get<FileSystemDirectoryHandle>(dirKey(projectId))) ??
     (await get<FileSystemDirectoryHandle>('dirHandle'))
   );
 }
-export const delDirHandle = (projectId: string) => del(`dirHandle:${projectId}`);
+export const delDirHandle = (projectId: string, floorId?: string) => del(dirKey(projectId, floorId));
 
 // Grava a cópia editada (<nome>_edit.png) de volta na pasta da vistoria.
 // Devolve o nome do arquivo gravado, ou null se não houver pasta/permite baixar.
@@ -83,8 +88,9 @@ export async function writeEditedToFolder(
   projectId: string,
   originalName: string,
   blob: Blob,
+  floorId?: string,
 ): Promise<string | null> {
-  const dir = await loadDirHandle(projectId);
+  const dir = await loadDirHandle(projectId, floorId);
   if (!dir) return null;
   try {
     const perm = await dir.queryPermission?.({ mode: 'readwrite' });

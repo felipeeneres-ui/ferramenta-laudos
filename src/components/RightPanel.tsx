@@ -1,5 +1,5 @@
 import { useStore } from '../store';
-import { ANNOTATION_COLORS, LOCAL_COLORS, LOCAL_LABEL, type Local } from '../types';
+import { ANNOTATION_COLORS, LOCAL_COLORS, LOCAL_LABEL, comodoOptions, type Local } from '../types';
 import { wallLength } from '../geometry';
 import {
   IconPlus,
@@ -8,6 +8,7 @@ import {
   IconMapPinPlus,
   IconLock,
   IconLockOpen,
+  IconCopy,
 } from '@tabler/icons-react';
 
 const LOCALS: Local[] = ['parede', 'piso', 'teto'];
@@ -48,10 +49,8 @@ export function RightPanel() {
 
   const selPoint =
     selection?.kind === 'point' ? project.points.find((p) => p.id === selection.id) : undefined;
-  // cômodos disponíveis = rótulos de cômodo de todos os pavimentos
-  const comodos = Array.from(
-    new Set(project.floors.flatMap((f) => f.rooms.map((r) => r.nome).filter(Boolean))),
-  ).sort((a, b) => a.localeCompare(b, 'pt'));
+  // cômodos disponíveis = rótulos de cômodo de todas as camadas (+ camadas sem cômodos, ex.: ruas)
+  const comodos = comodoOptions(project);
   const selOpening =
     selection?.kind === 'opening' ? floor.openings.find((o) => o.id === selection.id) : undefined;
   const selRoom =
@@ -69,7 +68,16 @@ export function RightPanel() {
   const updateFreeLabel = useStore((s) => s.updateFreeLabel);
   const updateFloorBg = useStore((s) => s.updateFloorBg);
   const setFloorBg = useStore((s) => s.setFloorBg);
+  const copyBgToAllFloors = useStore((s) => s.copyBgToAllFloors);
   const bg = floor.bg ?? null;
+
+  async function fundoEmTodas() {
+    const outras = project.floors.filter((f) => f.id !== floor.id);
+    const comFundo = outras.filter((f) => f.bg).length;
+    const aviso = comFundo ? ` ${comFundo} delas já têm fundo, que será substituído.` : '';
+    if (!confirm(`Usar esta imagem de fundo (mesma posição e escala) nas outras ${outras.length} camadas?${aviso}`)) return;
+    await copyBgToAllFloors();
+  }
 
   // Estilo do traçado: controla o selecionado, ou o padrão da ferramenta.
   const trColor = selTrace ? selTrace.color : traceStyle.color;
@@ -320,10 +328,15 @@ export function RightPanel() {
             {bg.locked ? <IconLock size={15} /> : <IconLockOpen size={15} />}
             {bg.locked ? 'Travada (destravar p/ mover)' : 'Destravada (arraste p/ mover)'}
           </button>
+          {project.floors.length > 1 && (
+            <button className="panel-btn" onClick={fundoEmTodas}>
+              <IconCopy size={15} /> Usar em todas as camadas
+            </button>
+          )}
           <button
             className="panel-btn danger"
             onClick={() => {
-              if (confirm('Remover a imagem de fundo deste pavimento?')) setFloorBg(null);
+              if (confirm('Remover a imagem de fundo desta camada?')) setFloorBg(null);
             }}
           >
             <IconTrash size={15} /> Remover fundo
@@ -409,6 +422,13 @@ export function RightPanel() {
               />
               Linha de chamada (rótulo afastado)
             </label>
+          )}
+          {selPoint.floorId && (
+            <p className="muted">
+              {selPoint.lx != null
+                ? 'Arraste o rótulo para reposicionar. Solte-o sobre o local para recolher a linha.'
+                : 'No desenho: arraste a alça ao lado do ponto (ou Alt + arrastar) para puxar o rótulo.'}
+            </p>
           )}
           <div className="field">
             <label>

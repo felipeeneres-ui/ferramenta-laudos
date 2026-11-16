@@ -37,9 +37,28 @@ interface Item {
   handle?: FileSystemFileHandle;
 }
 
+// Qual recorte da galeria está à vista: a camada ativa, todas, ou as fotos sem camada.
+type Scope = 'floor' | 'all' | 'none';
+
 export function PhotosView() {
-  const photos = useStore((s) => s.project.photos);
+  const allPhotos = useStore((s) => s.project.photos);
+  const floors = useStore((s) => s.project.floors);
+  const activeFloorId = useStore((s) => s.project.activeFloorId);
+  const setActiveFloor = useStore((s) => s.setActiveFloor);
   const addPhotos = useStore((s) => s.addPhotos);
+  const [scope, setScope] = useState<Scope>('floor');
+
+  // Com mais de uma camada (pavimentos ou ruas), as fotos ficam separadas por camada,
+  // cada uma com a sua pasta.
+  const multi = floors.length > 1;
+  const activeFloor = floors.find((f) => f.id === activeFloorId) ?? floors[0];
+  const semCamada = allPhotos.filter((p) => !p.floorId || !floors.some((f) => f.id === p.floorId));
+  const photos =
+    !multi || scope === 'all'
+      ? allPhotos
+      : scope === 'none'
+        ? semCamada
+        : allPhotos.filter((p) => p.floorId === activeFloor.id);
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -54,8 +73,18 @@ export function PhotosView() {
     else setPickerId(id);
   }
 
-  async function ingest(items: Item[]) {
-    const imgs = items.filter((f) => IMG_RE.test(f.name));
+  async function ingest(items: Item[], floorId: string) {
+    // não reimporta o que já está nesta camada (ex.: escolher a mesma pasta de novo),
+    // nem as cópias editadas que o próprio sistema grava na pasta
+    const jaTem = new Set(
+      useStore
+        .getState()
+        .project.photos.filter((p) => p.floorId === floorId)
+        .map((p) => p.nome),
+    );
+    const imgs = items.filter(
+      (f) => IMG_RE.test(f.name) && !/_edit\.png$/i.test(f.name) && !jaTem.has(f.name),
+    );
     if (imgs.length === 0) {
       setBusy(null);
       return;
@@ -83,6 +112,7 @@ export function PhotosView() {
           crop: null,
           border: true,
           edited: false,
+          floorId,
         });
       } catch {
         /* arquivo ilegível — ignora */
@@ -99,8 +129,9 @@ export function PhotosView() {
       return;
     }
     try {
+      const floorId = activeFloor.id;
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
-      await saveDirHandle(useStore.getState().project.id, dir);
+      await saveDirHandle(useStore.getState().project.id, dir, floorId);
       setBusy('Lendo a pasta…');
       const items: Item[] = [];
       for await (const entry of dir.values()) {
@@ -109,7 +140,8 @@ export function PhotosView() {
           items.push({ name: entry.name, file: await fh.getFile(), handle: fh });
         }
       }
-      await ingest(items);
+      await ingest(items, floorId);
+      if (multi) setScope('floor');
     } catch (err) {
       setBusy(null);
       if ((err as DOMException)?.name !== 'AbortError') console.error(err);
@@ -118,7 +150,11 @@ export function PhotosView() {
 
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(e.target.files ?? []);
-    await ingest(list.map((f) => ({ name: f.name, file: f })));
+    await ingest(
+      list.map((f) => ({ name: f.name, file: f })),
+      activeFloor.id,
+    );
+    if (multi) setScope('floor');
     e.target.value = '';
   }
 
@@ -145,10 +181,46 @@ export function PhotosView() {
 
   return (
     <div className="photos-view">
+      {multi && (
+        <div className="subbar">
+          <div className="floor-tabs">
+            {floors.map((f) => (
+              <button
+                key={f.id}
+                className={`floor-tab${scope === 'floor' && f.id === activeFloor.id ? ' active' : ''}`}
+                onClick={() => {
+                  setScope('floor');
+                  if (f.id !== activeFloorId) setActiveFloor(f.id);
+                }}
+                title={`Fotos de ${f.nome}`}
+              >
+                {f.nome} <span className="tab-count">{allPhotos.filter((p) => p.floorId === f.id).length}</span>
+              </button>
+            ))}
+            <button className={`floor-tab${scope === 'all' ? ' active' : ''}`} onClick={() => setScope('all')}>
+              Todas <span className="tab-count">{allPhotos.length}</span>
+            </button>
+            {semCamada.length > 0 && (
+              <button
+                className={`floor-tab${scope === 'none' ? ' active' : ''}`}
+                onClick={() => setScope('none')}
+                title="Fotos importadas antes da separação por camada"
+              >
+                Sem camada <span className="tab-count">{semCamada.length}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="subbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button className="icon-btn" onClick={pickFolder} disabled={!!busy}>
-            <IconFolderPlus size={16} /> Escolher pasta
+          <button
+            className="icon-btn"
+            onClick={pickFolder}
+            disabled={!!busy}
+            title={multi ? `As fotos da pasta entram na camada "${activeFloor.nome}"` : undefined}
+          >
+            <IconFolderPlus size={16} /> {multi ? `Escolher pasta de ${activeFloor.nome}` : 'Escolher pasta'}
           </button>
           <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onFiles} />
           <button className="icon-btn ghost" onClick={() => fileRef.current?.click()} disabled={!!busy}>
@@ -190,9 +262,12 @@ export function PhotosView() {
       {photos.length === 0 ? (
         <div className="photos-empty">
           <IconPhoto size={40} stroke={1.3} />
-          <p>Nenhuma foto ainda.</p>
+          <p>{multi && scope === 'floor' ? `Nenhuma foto em ${activeFloor.nome} ainda.` : 'Nenhuma foto ainda.'}</p>
           <p className="muted" style={{ maxWidth: 380, textAlign: 'center' }}>
-            Escolha a pasta da vistoria para trazer todas as fotos. Depois marque cada uma como
+            {multi
+              ? 'Cada camada tem a sua pasta de fotos: escolha acima a camada e depois a pasta dela.'
+              : 'Escolha a pasta da vistoria para trazer todas as fotos.'}{' '}
+            Depois marque cada uma como
             <b> Laudo</b> (será editada e entra no laudo + tabela) ou <b>Tabela</b> (só referência).
           </p>
         </div>

@@ -169,11 +169,14 @@ export function buildSvg(
     const hasLeader = p.lx != null && p.ly != null;
     const px = hasLeader ? p.lx! : p.x;
     const py = hasLeader ? p.ly! : p.y;
+    const halo = Math.max(1, sz * 0.07);
+    const lw = Math.max(1.2, sz * 0.09);
     const leader = hasLeader
-      ? `<line x1="${p.x}" y1="${p.y}" x2="${px}" y2="${py}" stroke="${LOCAL_COLORS[p.local]}" stroke-width="${Math.max(1.2, sz * 0.09)}"/>` +
+      ? `<line x1="${p.x}" y1="${p.y}" x2="${px}" y2="${py}" stroke="#ffffff" stroke-width="${lw + halo * 2}" stroke-linecap="round"/>` +
+        `<line x1="${p.x}" y1="${p.y}" x2="${px}" y2="${py}" stroke="${LOCAL_COLORS[p.local]}" stroke-width="${lw}" stroke-linecap="round"/>` +
         `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(2.5, sz * 0.18)}" fill="${LOCAL_COLORS[p.local]}" stroke="#ffffff" stroke-width="${Math.max(0.8, sz * 0.05)}"/>`
       : '';
-    const pill = `<rect x="${px - pw / 2}" y="${py - sz / 2}" width="${pw}" height="${sz}" rx="${sz / 2}" fill="${LOCAL_COLORS[p.local]}"/>`;
+    const pill = `<rect x="${px - pw / 2}" y="${py - sz / 2}" width="${pw}" height="${sz}" rx="${sz / 2}" fill="${LOCAL_COLORS[p.local]}" stroke="#ffffff" stroke-width="${halo}"/>`;
     const txt = `<text x="${px}" y="${py}" dominant-baseline="central" text-anchor="middle" font-size="${fs}" font-family="monospace" font-weight="500" fill="#ffffff">${esc(label)}</text>`;
     if (opts.interactive) {
       // grupo clicável com área de toque generosa (usado na visão do cliente)
@@ -203,7 +206,9 @@ export function exportFloorPng(
   bgDataUrl?: string,
 ) {
   const { svg, w, h } = buildSvg(floor, types, points, pointSize, { bgDataUrl });
-  const scale = 2;
+  // com imagem de fundo, exporta perto da resolução original dela (limitado a ~6000 px)
+  let scale = 2;
+  if (floor.bg && bgDataUrl) scale = Math.max(2, Math.min(1 / floor.bg.scale, 6000 / Math.max(w, h)));
   const img = new Image();
   const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);

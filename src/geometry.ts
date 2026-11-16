@@ -48,6 +48,89 @@ export function closestOnSegment(
   return { point, t, distance: dist(p, point) };
 }
 
+// Largura do pino (pílula) de um ponto de anomalia, para um rótulo e tamanho dados.
+export function pillWidth(label: string, sz: number): number {
+  return sz * 0.72 + label.length * (sz * 0.28);
+}
+
+interface LabelBox {
+  id: string;
+  ax: number; // âncora (local da anomalia)
+  ay: number;
+  lx: number; // centro do rótulo
+  ly: number;
+  w: number;
+}
+
+// Afasta os rótulos que estão uns sobre os outros (ou sobre o local de outro
+// ponto), com o menor deslocamento possível. Devolve a nova posição só dos
+// rótulos que saíram do lugar; esses passam a ter linha de chamada.
+export function spreadLabels(
+  items: { id: string; x: number; y: number; lx?: number; ly?: number; w: number }[],
+  sz: number,
+): Map<string, Vec> {
+  const boxes: LabelBox[] = items.map((it) => ({
+    id: it.id,
+    ax: it.x,
+    ay: it.y,
+    lx: it.lx ?? it.x,
+    ly: it.ly ?? it.y,
+    w: it.w,
+  }));
+  const start = boxes.map((b) => ({ x: b.lx, y: b.ly }));
+  const gap = sz * 0.3;
+  const dot = sz * 0.35;
+
+  for (let iter = 0; iter < 400; iter++) {
+    let moved = false;
+    // rótulo x rótulo
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const dx = a.lx - b.lx;
+        const dy = a.ly - b.ly;
+        const ox = (a.w + b.w) / 2 + gap - Math.abs(dx);
+        const oy = sz + gap - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;
+        moved = true;
+        if (oy <= ox) {
+          const s = dy === 0 ? -1 : Math.sign(dy);
+          a.ly += (s * oy) / 2;
+          b.ly -= (s * oy) / 2;
+        } else {
+          const s = dx === 0 ? -1 : Math.sign(dx);
+          a.lx += (s * ox) / 2;
+          b.lx -= (s * ox) / 2;
+        }
+      }
+    }
+    // rótulo x local de outro ponto (e o próprio local, se o rótulo já saiu dele)
+    for (const a of boxes) {
+      for (const b of boxes) {
+        const own = a === b;
+        if (own && Math.hypot(a.lx - a.ax, a.ly - a.ay) < 0.5) continue;
+        const dx = a.lx - b.ax;
+        const dy = a.ly - b.ay;
+        const ox = a.w / 2 + dot - Math.abs(dx);
+        const oy = sz / 2 + dot - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;
+        moved = true;
+        if (oy <= ox) a.ly += (dy < 0 ? -1 : 1) * oy;
+        else a.lx += (dx < 0 ? -1 : 1) * ox;
+      }
+    }
+    if (!moved) break;
+  }
+
+  const out = new Map<string, Vec>();
+  boxes.forEach((b, i) => {
+    if (Math.hypot(b.lx - start[i].x, b.ly - start[i].y) > 0.5)
+      out.set(b.id, { x: Math.round(b.lx), y: Math.round(b.ly) });
+  });
+  return out;
+}
+
 // Vetor unitário e normal de uma parede.
 export function wallVectors(w: { x1: number; y1: number; x2: number; y2: number }) {
   const dx = w.x2 - w.x1;
