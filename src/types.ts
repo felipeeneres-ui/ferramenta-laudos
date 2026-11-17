@@ -219,6 +219,8 @@ export interface Photo {
   edited: boolean;
   // camada (pavimento ou rua) a que a foto pertence; ausente = foto antiga, sem camada
   floorId?: string;
+  // subpasta dentro da pasta da camada (ex.: "1 - Calçada Sul"); '' ou ausente = na raiz
+  subpasta?: string;
   // Vista: a foto marcada no croqui como "olhar daqui" (um ponto simples). Não é ponto
   // de análise: não entra na tabela. No croqui interativo, clicar no ponto abre a foto.
   vista?: PhotoVista;
@@ -291,7 +293,11 @@ export function comodoOptions(project: Project): string[] {
 export function comparePhotos(project: Project): (a: Photo, b: Photo) => number {
   const idx = new Map(project.floors.map((f, i) => [f.id, i]));
   const pos = (p: Photo) => (p.floorId != null ? (idx.get(p.floorId) ?? -1) : -1);
-  return (a, b) => pos(a) - pos(b) || a.nome.localeCompare(b.nome, undefined, { numeric: true });
+  const sub = (p: Photo) => p.subpasta ?? '';
+  return (a, b) =>
+    pos(a) - pos(b) ||
+    sub(a).localeCompare(sub(b), undefined, { numeric: true }) ||
+    a.nome.localeCompare(b.nome, undefined, { numeric: true });
 }
 
 // Paleta: cores da marca CRAFT (azul-marinho, ardósia, cinzas) extraídas do

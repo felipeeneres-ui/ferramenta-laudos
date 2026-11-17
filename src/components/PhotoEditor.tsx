@@ -795,7 +795,7 @@ export function PhotoEditor({ photo, onClose }: Props) {
       const current = annsRef.current;
       const blob = await renderEditedBlob({ ...photo, annotations: current, crop, border, adjust }, current, pointInfo);
       await putEdited(photo.id, blob);
-      const written = await writeEditedToFolder(project.id, photo.nome, blob, photo.floorId);
+      const written = await writeEditedToFolder(project.id, photo.nome, blob, photo.floorId, photo.subpasta);
       updatePhoto(photo.id, { annotations: current, crop, border, adjust, edited: true });
       if (written) {
         alert(`Cópia editada salva na pasta: ${written}`);

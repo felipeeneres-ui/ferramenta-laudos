@@ -1773,3 +1773,34 @@ button {
   border: 1px solid var(--line);
   margin-bottom: 8px;
 }
+
+/* ---------- subpastas de fotos ---------- */
+.sub-chips {
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sub-chips .chip {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.sub-chips .chip:hover {
+  background: var(--surface);
+}
+.sub-chips .chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.viewer-top .vt-sub {
+  margin-left: 10px;
+  font-size: 12px;
+  opacity: 0.75;
+}

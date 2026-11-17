@@ -8,7 +8,7 @@ import { PhotoViewer } from './PhotoViewer';
 import { PhotoEditor } from './PhotoEditor';
 import { TablePointPicker } from './TablePointPicker';
 import { IconPencil } from '@tabler/icons-react';
-import type { Photo } from '../types';
+import { comparePhotos, type Photo } from '../types';
 
 const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|tiff?)$/i;
 
@@ -35,6 +35,21 @@ interface Item {
   name: string;
   file: Blob;
   handle?: FileSystemFileHandle;
+  sub: string; // subpasta relativa à pasta escolhida ('' = raiz)
+}
+
+// Lê a pasta e as subpastas (ex.: Rua 1822/1 - Calçada Sul, 2 - Calçada Norte...).
+async function lerPasta(dir: FileSystemDirectoryHandle, sub = '', nivel = 0): Promise<Item[]> {
+  const out: Item[] = [];
+  for await (const entry of dir.values()) {
+    if (entry.kind === 'file' && IMG_RE.test(entry.name)) {
+      const fh = entry as FileSystemFileHandle;
+      out.push({ name: entry.name, file: await fh.getFile(), handle: fh, sub });
+    } else if (entry.kind === 'directory' && nivel < 4 && !entry.name.startsWith('.')) {
+      out.push(...(await lerPasta(entry as FileSystemDirectoryHandle, sub ? `${sub}/${entry.name}` : entry.name, nivel + 1)));
+    }
+  }
+  return out;
 }
 
 // Qual recorte da galeria está à vista: a camada ativa, todas, ou as fotos sem camada.
@@ -46,19 +61,32 @@ export function PhotosView() {
   const activeFloorId = useStore((s) => s.project.activeFloorId);
   const setActiveFloor = useStore((s) => s.setActiveFloor);
   const addPhotos = useStore((s) => s.addPhotos);
+  const patchPhotos = useStore((s) => s.patchPhotos);
+  const project = useStore((s) => s.project);
   const [scope, setScope] = useState<Scope>('floor');
+  const [subSel, setSubSel] = useState<string | null>(null); // filtro por subpasta (null = todas)
 
   // Com mais de uma camada (pavimentos ou ruas), as fotos ficam separadas por camada,
   // cada uma com a sua pasta.
   const multi = floors.length > 1;
   const activeFloor = floors.find((f) => f.id === activeFloorId) ?? floors[0];
   const semCamada = allPhotos.filter((p) => !p.floorId || !floors.some((f) => f.id === p.floorId));
-  const photos =
+  const doRecorte =
     !multi || scope === 'all'
       ? allPhotos
       : scope === 'none'
         ? semCamada
         : allPhotos.filter((p) => p.floorId === activeFloor.id);
+  // subpastas presentes no recorte (ex.: 1 - Calçada Sul, 2 - Calçada Norte, 3 - Pavimento)
+  const subpastas = Array.from(new Set(doRecorte.map((p) => p.subpasta ?? ''))).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
+  const temSub = subpastas.some(Boolean);
+  const filtroSub = temSub && subSel !== null && subpastas.includes(subSel) ? subSel : null;
+  // ordem: camada, subpasta e nome
+  const photos = (filtroSub === null ? doRecorte : doRecorte.filter((p) => (p.subpasta ?? '') === filtroSub))
+    .slice()
+    .sort(comparePhotos(project));
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -74,30 +102,36 @@ export function PhotosView() {
   }
 
   async function ingest(items: Item[], floorId: string) {
-    // não reimporta o que já está nesta camada (ex.: escolher a mesma pasta de novo),
-    // nem as cópias editadas que o próprio sistema grava na pasta
-    const jaTem = new Set(
-      useStore
-        .getState()
-        .project.photos.filter((p) => p.floorId === floorId)
-        .map((p) => p.nome),
-    );
-    const daCamada = new Map(
-      useStore
-        .getState()
-        .project.photos.filter((p) => p.floorId === floorId)
-        .map((p) => [p.nome, p.id]),
-    );
-    // foto já importada: só religa o arquivo original (ex.: projeto aberto em outro navegador)
+    items = items.filter((f) => IMG_RE.test(f.name) && !/_edit\.png$/i.test(f.name));
+    // Foto já importada nesta camada: não reimporta. Só religa o arquivo original (a foto
+    // pode ter mudado de lugar, ex.: separada em subpastas) e atualiza a subpasta.
+    const daCamada = useStore
+      .getState()
+      .project.photos.filter((p) => p.floorId === floorId);
+    const usadas = new Set<string>();
+    const ajustes = new Map<string, Partial<Photo>>();
+    const novas: Item[] = [];
+    let religadas = 0;
     for (const it of items) {
-      const id = daCamada.get(it.name);
-      if (id && it.handle) await putFileHandle(id, it.handle);
+      const mesma =
+        daCamada.find((p) => !usadas.has(p.id) && p.nome === it.name && (p.subpasta ?? '') === it.sub) ??
+        daCamada.find((p) => !usadas.has(p.id) && p.nome === it.name && !p.subpasta);
+      if (!mesma) {
+        novas.push(it);
+        continue;
+      }
+      usadas.add(mesma.id);
+      if (it.handle) {
+        await putFileHandle(mesma.id, it.handle);
+        religadas++;
+      }
+      if ((mesma.subpasta ?? '') !== it.sub) ajustes.set(mesma.id, { subpasta: it.sub });
     }
-    const imgs = items.filter(
-      (f) => IMG_RE.test(f.name) && !/_edit\.png$/i.test(f.name) && !jaTem.has(f.name),
-    );
+    patchPhotos(ajustes);
+    const imgs = novas;
     if (imgs.length === 0) {
       setBusy(null);
+      if (religadas) alert(`Nenhuma foto nova. ${religadas} foto(s) já importada(s) foram religadas à pasta.`);
       return;
     }
     const out: Photo[] = [];
@@ -124,12 +158,17 @@ export function PhotosView() {
           border: true,
           edited: false,
           floorId,
+          ...(it.sub ? { subpasta: it.sub } : {}),
         });
       } catch {
         /* arquivo ilegível — ignora */
       }
     }
-    out.sort((a, b) => a.nome.localeCompare(b.nome, undefined, { numeric: true }));
+    out.sort(
+      (a, b) =>
+        (a.subpasta ?? '').localeCompare(b.subpasta ?? '', undefined, { numeric: true }) ||
+        a.nome.localeCompare(b.nome, undefined, { numeric: true }),
+    );
     addPhotos(out);
     setBusy(null);
   }
@@ -143,15 +182,10 @@ export function PhotosView() {
       const floorId = activeFloor.id;
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
       await saveDirHandle(useStore.getState().project.id, dir, floorId);
-      setBusy('Lendo a pasta…');
-      const items: Item[] = [];
-      for await (const entry of dir.values()) {
-        if (entry.kind === 'file' && IMG_RE.test(entry.name)) {
-          const fh = entry as FileSystemFileHandle;
-          items.push({ name: entry.name, file: await fh.getFile(), handle: fh });
-        }
-      }
+      setBusy('Lendo a pasta e as subpastas…');
+      const items = await lerPasta(dir);
       await ingest(items, floorId);
+      setSubSel(null);
       if (multi) setScope('floor');
     } catch (err) {
       setBusy(null);
@@ -162,7 +196,7 @@ export function PhotosView() {
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(e.target.files ?? []);
     await ingest(
-      list.map((f) => ({ name: f.name, file: f })),
+      list.map((f) => ({ name: f.name, file: f, sub: '' })),
       activeFloor.id,
     );
     if (multi) setScope('floor');
@@ -201,6 +235,7 @@ export function PhotosView() {
                 className={`floor-tab${scope === 'floor' && f.id === activeFloor.id ? ' active' : ''}`}
                 onClick={() => {
                   setScope('floor');
+                  setSubSel(null);
                   if (f.id !== activeFloorId) setActiveFloor(f.id);
                 }}
                 title={`Fotos de ${f.nome}`}
@@ -208,7 +243,13 @@ export function PhotosView() {
                 {f.nome} <span className="tab-count">{allPhotos.filter((p) => p.floorId === f.id).length}</span>
               </button>
             ))}
-            <button className={`floor-tab${scope === 'all' ? ' active' : ''}`} onClick={() => setScope('all')}>
+            <button
+              className={`floor-tab${scope === 'all' ? ' active' : ''}`}
+              onClick={() => {
+                setScope('all');
+                setSubSel(null);
+              }}
+            >
               Todas <span className="tab-count">{allPhotos.length}</span>
             </button>
             {semCamada.length > 0 && (
@@ -223,13 +264,31 @@ export function PhotosView() {
           </div>
         </div>
       )}
+      {temSub && (
+        <div className="subbar sub-chips">
+          <span className="muted" style={{ margin: 0 }}>Subpastas:</span>
+          <button className={`chip${filtroSub === null ? ' on' : ''}`} onClick={() => setSubSel(null)}>
+            Todas <span className="tab-count">{doRecorte.length}</span>
+          </button>
+          {subpastas.map((s) => (
+            <button key={s || '(raiz)'} className={`chip${filtroSub === s ? ' on' : ''}`} onClick={() => setSubSel(s)}>
+              {s || 'Fora das subpastas'}{' '}
+              <span className="tab-count">{doRecorte.filter((p) => (p.subpasta ?? '') === s).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="subbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="icon-btn"
             onClick={pickFolder}
             disabled={!!busy}
-            title={multi ? `As fotos da pasta entram na camada "${activeFloor.nome}"` : undefined}
+            title={
+              multi
+                ? `As fotos da pasta (e das subpastas) entram na camada "${activeFloor.nome}"`
+                : 'Traz as fotos da pasta e das subpastas'
+            }
           >
             <IconFolderPlus size={16} /> {multi ? `Escolher pasta de ${activeFloor.nome}` : 'Escolher pasta'}
           </button>
@@ -367,7 +426,7 @@ function PhotoCard({ photo, onOpen, onEdit }: { photo: Photo; onOpen: () => void
         </span>
       </button>
       <div className="meta">
-        <span className="name" title={photo.nome}>
+        <span className="name" title={photo.subpasta ? `${photo.subpasta}/${photo.nome}` : photo.nome}>
           {photo.nome}
         </span>
       </div>

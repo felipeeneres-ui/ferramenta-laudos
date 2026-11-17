@@ -293,6 +293,7 @@ interface State {
   setClassification: (id: string, c: Classification) => void;
   setReviewed: (id: string, reviewed: boolean) => void;
   updatePhoto: (id: string, patch: Partial<Photo>) => void;
+  patchPhotos: (patches: Map<string, Partial<Photo>>) => void; // várias fotos de uma vez
   setAllTextSize: (normalized: number) => void;
   deletePhoto: (id: string) => void;
 
@@ -865,7 +866,7 @@ export const useStore = create<State>((set, get) => {
     addPhotos: (photos) => {
       const p = get().project;
       // o mesmo nome de arquivo pode se repetir em camadas (pastas) diferentes
-      const key = (x: Photo) => `${x.floorId ?? ''}|${x.nome}`;
+      const key = (x: Photo) => `${x.floorId ?? ''}|${x.subpasta ?? ''}|${x.nome}`;
       const existing = new Set(p.photos.map(key));
       const fresh = photos.filter((x) => !existing.has(key(x)));
       commit({ ...p, photos: [...p.photos, ...fresh] });
@@ -892,6 +893,12 @@ export const useStore = create<State>((set, get) => {
     updatePhoto: (id, patch) => {
       const p = get().project;
       commit({ ...p, photos: p.photos.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
+    },
+
+    patchPhotos: (patches) => {
+      if (patches.size === 0) return;
+      const p = get().project;
+      commit({ ...p, photos: p.photos.map((x) => (patches.has(x.id) ? { ...x, ...patches.get(x.id) } : x)) });
     },
 
     // Define o tamanho (escala 1-100 do editor) de TODAS as caixas de texto de todas as fotos.

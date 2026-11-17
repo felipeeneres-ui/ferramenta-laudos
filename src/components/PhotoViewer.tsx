@@ -67,6 +67,7 @@ export function PhotoViewer({ photos, index, onIndex, onClose, onEdit }: Props) 
       <div className="viewer-top" onClick={(e) => e.stopPropagation()}>
         <div className="vt-left">
           <span className="vt-name">{photo.nome}</span>
+          {photo.subpasta && <span className="vt-sub">{photo.subpasta}</span>}
           {photo.reviewed && (
             <span className="vt-reviewed">
               <IconCircleCheck size={15} /> analisada

@@ -118,22 +118,26 @@ export async function writeEditedToFolder(
   originalName: string,
   blob: Blob,
   floorId?: string,
+  subpasta?: string,
 ): Promise<string | null> {
-  const dir = await loadDirHandle(projectId, floorId);
-  if (!dir) return null;
+  const raiz = await loadDirHandle(projectId, floorId);
+  if (!raiz) return null;
+  let dir = raiz;
   try {
     const perm = await dir.queryPermission?.({ mode: 'readwrite' });
     if (perm !== 'granted') {
       const req = await dir.requestPermission?.({ mode: 'readwrite' });
       if (req !== 'granted') return null;
     }
+    // foto de uma subpasta (ex.: "1 - Calçada Sul"): a cópia fica ao lado da original
+    for (const parte of (subpasta ?? '').split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(parte);
     const base = originalName.replace(/\.[^.]+$/, '');
     const fname = `${base}_edit.png`;
     const fh = await dir.getFileHandle(fname, { create: true });
     const writable = await fh.createWritable();
     await writable.write(blob);
     await writable.close();
-    return fname;
+    return subpasta ? `${subpasta}/${fname}` : fname;
   } catch {
     return null;
   }
