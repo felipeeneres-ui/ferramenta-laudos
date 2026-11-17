@@ -10,7 +10,7 @@ import { TableView } from './components/TableView';
 import { LaudoView } from './components/LaudoView';
 import { ClientView } from './components/ClientView';
 import { useStore } from './store';
-import { vistasDaCamada } from './types';
+import { pontoVisivel, vistasDaCamada } from './types';
 import { exportFloorPng } from './exportPng';
 import { getBg, blobToDataUrl } from './db';
 
@@ -42,7 +42,8 @@ export default function App() {
   async function handleExport() {
     const { project } = useStore.getState();
     const floor = useStore.getState().activeFloor();
-    const pts = project.points.filter((p) => p.floorId === floor.id);
+    // o PNG sai como o croqui está na tela: sem os pontos das ruas escondidas
+    const pts = project.points.filter((p) => p.floorId === floor.id && pontoVisivel(project, p));
     const name = `${project.nome || 'imovel'} - ${project.croquiUnico ? 'Croqui' : floor.nome}.png`;
     let bgDataUrl: string | undefined;
     let satDataUrl: string | undefined;
@@ -62,7 +63,7 @@ export default function App() {
       project.croquiPointSize ?? 18,
       bgDataUrl,
       satDataUrl,
-      project.vistasNoExport ? vistasDaCamada(project, floor.id) : undefined,
+      project.vistasNoExport ? vistasDaCamada(project, floor.id, true) : undefined,
       project.vistaSize,
     );
   }

@@ -250,12 +250,36 @@ export interface Project {
   croquiGeo?: CroquiGeo;
   vistasNoExport?: boolean; // mostrar as vistas também no PNG e no PDF (ausente = só no interativo)
   vistaSize?: number; // diâmetro do ponto das vistas (ausente = TAM_VISTA)
+  // Croqui único: ruas (ids de camada) com os pontos e as vistas escondidos no croqui
+  // da tela e no PNG. A tabela, o PDF e o croqui interativo continuam com tudo.
+  ruasOcultas?: string[];
+}
+
+// Rua (camada) de um ponto no croqui único: a camada cujo nome é o "cômodo" do ponto.
+function ruaDoPonto(project: Project, pt: Point): string | undefined {
+  const nome = pt.comodo.trim();
+  return nome ? project.floors.find((f) => f.nome.trim() === nome)?.id : undefined;
+}
+
+// O ponto aparece no croqui da tela e no PNG? (sempre, fora do croqui único)
+export function pontoVisivel(project: Project, pt: Point): boolean {
+  const ocultas = project.croquiUnico ? project.ruasOcultas : undefined;
+  if (!ocultas?.length) return true;
+  const rua = ruaDoPonto(project, pt);
+  return !rua || !ocultas.includes(rua);
+}
+
+export function vistaVisivel(project: Project, ph: Photo): boolean {
+  const ocultas = project.croquiUnico ? project.ruasOcultas : undefined;
+  return !ocultas?.length || !ph.floorId || !ocultas.includes(ph.floorId);
 }
 
 // Vistas posicionadas numa camada do desenho, no formato usado pelas exportações.
-export function vistasDaCamada(project: Project, floorId: string) {
+// soVisiveis: respeita as ruas escondidas (croqui da tela e PNG).
+export function vistasDaCamada(project: Project, floorId: string, soVisiveis = false) {
   return project.photos
     .filter((ph) => ph.vista && ph.vista.floorId === floorId)
+    .filter((ph) => !soVisiveis || vistaVisivel(project, ph))
     .map((ph) => ({ id: ph.id, x: ph.vista!.x, y: ph.vista!.y }));
 }
 

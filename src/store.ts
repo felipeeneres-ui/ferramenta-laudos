@@ -21,6 +21,7 @@ import {
   DEFAULT_CROQUI_POINT,
   floorAsComodo,
   drawFloorId,
+  pontoVisivel,
   type CroquiGeo,
 } from './types';
 import { uid, pillWidth, spreadLabels } from './geometry';
@@ -231,6 +232,7 @@ interface State {
   removeVista: (photoId: string) => void;
   setVistasNoExport: (v: boolean) => void;
   setVistaSize: (tam: number) => void;
+  toggleRuaOculta: (floorId: string) => void; // croqui único: esconde/mostra os pontos da rua
   snapEnabled: boolean;
 
   setAppView: (v: AppView) => void;
@@ -299,6 +301,15 @@ interface State {
 
   loadFromJSON: (project: Project) => void;
   resetProject: () => void;
+}
+
+// Ponto novo ou recém-posicionado numa rua escondida: mostra a rua de novo,
+// senão o ponto some da tela logo depois de criado.
+function mostrarRuaDo(p: Project, pt: Point): Project {
+  if (!p.ruasOcultas?.length || pontoVisivel(p, pt)) return p;
+  const nome = pt.comodo.trim();
+  const rua = p.floors.find((f) => f.nome.trim() === nome)?.id;
+  return { ...p, ruasOcultas: p.ruasOcultas.filter((x) => x !== rua) };
 }
 
 export const useStore = create<State>((set, get) => {
@@ -444,6 +455,13 @@ export const useStore = create<State>((set, get) => {
 
     setVistasNoExport: (v) => commit({ ...get().project, vistasNoExport: v }),
     setVistaSize: (tam) => commit({ ...get().project, vistaSize: tam }),
+    toggleRuaOculta: (floorId) => {
+      const p = get().project;
+      const atual = p.ruasOcultas ?? [];
+      const ruasOcultas = atual.includes(floorId) ? atual.filter((x) => x !== floorId) : [...atual, floorId];
+      commit({ ...p, ruasOcultas });
+      set({ selection: null });
+    },
     toggleSnap: () => set({ snapEnabled: !get().snapEnabled }),
     setTool: (t) => set({ tool: t, selection: null, placingPointId: null, placingVistaId: null }),
     setSelection: (s) => set({ selection: s }),
@@ -682,7 +700,7 @@ export const useStore = create<State>((set, get) => {
       const p = get().project;
       const sz = p.croquiPointSize ?? DEFAULT_CROQUI_POINT;
       const items = p.points
-        .filter((pt) => pt.floorId === drawFloorId(p))
+        .filter((pt) => pt.floorId === drawFloorId(p) && pontoVisivel(p, pt))
         .map((pt) => {
           const prefix = p.anomalyTypes.find((t) => t.id === pt.typeId)?.prefix ?? '?';
           return { id: pt.id, x: pt.x, y: pt.y, lx: pt.lx, ly: pt.ly, w: pillWidth(`${prefix}${pt.numero}`, sz) };
@@ -723,7 +741,7 @@ export const useStore = create<State>((set, get) => {
         x,
         y,
       };
-      commit({ ...p, points: [...p.points, point] });
+      commit(mostrarRuaDo({ ...p, points: [...p.points, point] }, point));
       set({ selection: { kind: 'point', id } });
     },
 
@@ -751,12 +769,14 @@ export const useStore = create<State>((set, get) => {
 
     placePoint: (id, x, y) => {
       const p = get().project;
-      commit({
+      const novo = {
         ...p,
         points: p.points.map((pt) =>
           pt.id === id ? { ...pt, floorId: drawFloorId(p), x, y } : pt,
         ),
-      });
+      };
+      const pt = novo.points.find((q) => q.id === id);
+      commit(pt ? mostrarRuaDo(novo, pt) : novo);
       set({ placingPointId: null, selection: { kind: 'point', id } });
     },
 

@@ -14,7 +14,7 @@ import {
   TAM_VISTA,
   type Vec,
 } from '../geometry';
-import { LOCAL_COLORS, type FreeLabel, type OpeningKind, type Wall } from '../types';
+import { LOCAL_COLORS, pontoVisivel, vistaVisivel, type FreeLabel, type OpeningKind, type Wall } from '../types';
 
 // Caixa aproximada do texto livre (coords locais, centrada em 0,0) — usada
 // no render, no hit-test e na exportação.
@@ -98,7 +98,8 @@ export function Canvas() {
   const gsnapVec = (p: Vec): Vec => (snapEnabled ? snapVec(p) : { x: Math.round(p.x), y: Math.round(p.y) });
 
   // pontos do projeto posicionados neste pavimento
-  const points = project.points.filter((p) => p.floorId === floor.id);
+  // (no croqui único, sem os das ruas escondidas)
+  const points = project.points.filter((p) => p.floorId === floor.id && pontoVisivel(project, p));
 
   const pointSz = project.croquiPointSize ?? 18;
   const pointLabel = (pt: { typeId: string; numero: number }) =>
@@ -110,7 +111,9 @@ export function Canvas() {
   });
 
   // vistas (fotos marcadas como "olhar daqui") posicionadas neste desenho
-  const vistas = project.photos.filter((ph) => ph.vista && ph.vista.floorId === floor.id);
+  const vistas = project.photos.filter(
+    (ph) => ph.vista && ph.vista.floorId === floor.id && vistaVisivel(project, ph),
+  );
   const tamVista = project.vistaSize ?? TAM_VISTA;
 
   const [wallStart, setWallStart] = useState<Vec | null>(null);

@@ -8,6 +8,8 @@ import {
   IconPhotoUp,
   IconArrowsMove,
   IconMap2,
+  IconEye,
+  IconEyeOff,
 } from '@tabler/icons-react';
 import { useStore } from '../store';
 import { putBg } from '../db';
@@ -28,6 +30,7 @@ export function CroquiBar({ onExport }: Props) {
   const setFloorBg = useStore((s) => s.setFloorBg);
   const renameFloor = useStore((s) => s.renameFloor);
   const arrangeLabels = useStore((s) => s.arrangeLabels);
+  const toggleRuaOculta = useStore((s) => s.toggleRuaOculta);
   const fileRef = useRef<HTMLInputElement>(null);
   const bgRef = useRef<HTMLInputElement>(null);
   const [ruaOpen, setRuaOpen] = useState(false);
@@ -121,21 +124,42 @@ export function CroquiBar({ onExport }: Props) {
   return (
     <div className="subbar">
       <div className="floor-tabs">
-        {project.floors.map((f) => (
-          <button
-            key={f.id}
-            className={`floor-tab${f.id === project.activeFloorId ? ' active' : ''}`}
-            onClick={() => setActiveFloor(f.id)}
-            onDoubleClick={() => onRename(f.id, f.nome)}
-            title={
-              project.croquiUnico
-                ? 'Rua ativa: os pontos novos entram nela. Clique duplo para renomear.'
-                : 'Clique duplo para renomear'
-            }
-          >
-            {f.nome}
-          </button>
-        ))}
+        {project.floors.map((f) => {
+          const oculta = !!project.croquiUnico && (project.ruasOcultas ?? []).includes(f.id);
+          return (
+            <button
+              key={f.id}
+              className={`floor-tab${f.id === project.activeFloorId ? ' active' : ''}${oculta ? ' rua-oculta' : ''}`}
+              onClick={() => setActiveFloor(f.id)}
+              onDoubleClick={() => onRename(f.id, f.nome)}
+              title={
+                project.croquiUnico
+                  ? 'Rua ativa: os pontos novos entram nela. Clique duplo para renomear.'
+                  : 'Clique duplo para renomear'
+              }
+            >
+              {project.croquiUnico && (
+                <span
+                  className="rua-olho"
+                  role="button"
+                  title={
+                    oculta
+                      ? 'Pontos desta rua escondidos no croqui e no PNG. Clique para mostrar.'
+                      : 'Esconder os pontos desta rua no croqui e no PNG (a tabela continua com eles)'
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRuaOculta(f.id);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                >
+                  {oculta ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                </span>
+              )}
+              {f.nome}
+            </button>
+          );
+        })}
         <button className="icon-btn ghost" title="Adicionar camada (pavimento ou rua)" onClick={addFloor}>
           <IconPlus size={16} />
         </button>
