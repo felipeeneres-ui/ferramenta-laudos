@@ -27,6 +27,10 @@ header p{margin:4px 0 0;font-size:13px;opacity:.8}
 .floors{display:flex;gap:6px;padding:10px 16px 0;background:#eef0f3}
 .floor-tab{border:1px solid #c7ccd4;background:#fff;color:#46536B;padding:6px 14px;border-radius:999px;font:inherit;font-size:13px;cursor:pointer}
 .floor-tab.on{background:#0F1E3C;color:#fff;border-color:#0F1E3C}
+.satbar{display:flex;align-items:center;gap:10px;padding:10px 16px 0;font-size:13px;color:#46536B;flex-wrap:wrap}
+.satbar label{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #d7dbe0;border-radius:999px;padding:5px 14px}
+.satbar input[type=range]{width:180px;accent-color:#0F1E3C}
+.satbar output{min-width:36px;text-align:right;font-variant-numeric:tabular-nums;color:#1f2329}
 .wrap{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:20px}
 .stage{display:none;width:100%;max-width:960px}
 .stage.on{display:block}
@@ -94,6 +98,9 @@ const JS = `
  document.getElementById('lbnext').onclick=function(){ go(1); };
  lb.addEventListener('click',function(ev){ if(ev.target===lb) close(); });
  document.addEventListener('keydown',function(ev){ if(lb.classList.contains('open')){ if(ev.key==='Escape') close(); else if(ev.key==='ArrowLeft') go(-1); else if(ev.key==='ArrowRight') go(1); } });
+ // transparência da imagem de satélite (o cliente ajusta vendo o croqui)
+ var sr=document.getElementById('satop');
+ if(sr){ var so=document.getElementById('satval'); var aplica=function(){ var v=parseInt(sr.value,10); so.textContent=v+'%'; var im=document.querySelectorAll('image.im-sat'); for(var q=0;q<im.length;q++) im[q].setAttribute('opacity',String(v/100)); }; sr.addEventListener('input',aplica); aplica(); }
  var ft=document.querySelectorAll('.floor-tab');
  for(var f=0;f<ft.length;f++){ (function(t){ t.onclick=function(){ var fl=t.getAttribute('data-floor'); var all=document.querySelectorAll('.floor-tab'); for(var a=0;a<all.length;a++) all[a].classList.toggle('on',all[a]===t); var st=document.querySelectorAll('.stage'); for(var b=0;b<st.length;b++) st[b].classList.toggle('on',st[b].getAttribute('data-floor')===fl); panel.classList.remove('open'); }; })(ft[f]); }
 })();
@@ -173,6 +180,15 @@ export function buildInteractiveHtml(
     .map((f, i) => `<div class="stage${i === 0 ? ' on' : ''}" data-floor="${esc(f.id)}">${f.svg}</div>`)
     .join('');
 
+  // barra de transparência do satélite (só quando alguma camada tem satélite)
+  const comSat = floors.find((f) => f.sat && bgMap.get(`${f.id}_sat`));
+  const satPct = comSat ? Math.round((comSat.sat!.opacity ?? 1) * 100) : 0;
+  const satBar = comSat
+    ? '<div class="satbar"><label>Imagem de satélite ' +
+      `<input id="satop" type="range" min="0" max="100" step="1" value="${satPct}" aria-label="Opacidade da imagem de satélite">` +
+      `<output id="satval">${satPct}%</output></label></div>`
+    : '';
+
   const json = JSON.stringify(data);
   const nome = esc(project.nome || 'Laudo');
 
@@ -182,6 +198,7 @@ export function buildInteractiveHtml(
     `<title>${nome} — Croqui interativo</title><style>${CSS}</style></head><body>` +
     `<header><h1>${nome}</h1><p>Clique em um ponto no croqui para ver as fotos. Os pontos escuros abrem a vista daquele lugar.</p></header>` +
     tabs +
+    satBar +
     `<div class="wrap">${stages}</div>` +
     '<aside id="panel" class="panel"><button id="pclose" class="pclose" aria-label="Fechar">&times;</button><div id="pc"></div></aside>' +
     '<div id="lb" class="lb"><button id="lbclose" class="x" aria-label="Fechar">&times;</button>' +

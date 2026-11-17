@@ -52,12 +52,14 @@ export async function getOriginal(id: string): Promise<Blob | undefined> {
   return getOriginalBlob(id);
 }
 
-export async function deletePhotoBlobs(id: string) {
+// soLocal: apaga só a cópia deste navegador (ao excluir um projeto, a pasta dele
+// vai inteira para a _lixeira; apagar arquivo na pasta acertaria o projeto aberto).
+export async function deletePhotoBlobs(id: string, soLocal = false) {
   await del(orig(id));
   await del(thumb(id));
   await del(edited(id));
   await del(handle(id));
-  void apagarArquivo('miniaturas', id);
+  if (!soLocal) void apagarArquivo('miniaturas', id);
 }
 
 export const clearAllBlobs = () => clear();
@@ -78,9 +80,9 @@ export async function getBg(floorId: string): Promise<Blob | undefined> {
   }
   return get<Blob>(`bg:${floorId}`);
 }
-export async function delBg(floorId: string) {
+export async function delBg(floorId: string, soLocal = false) {
   await del(`bg:${floorId}`);
-  void apagarArquivo('fundos', floorId);
+  if (!soLocal) void apagarArquivo('fundos', floorId);
 }
 
 // Blob → data URL (para embutir o fundo nos exports PNG/PDF/HTML).

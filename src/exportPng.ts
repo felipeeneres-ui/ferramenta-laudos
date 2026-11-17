@@ -74,16 +74,18 @@ export function buildSvg(
   parts.push(`<rect x="${minX}" y="${minY}" width="${w}" height="${h}" fill="#ffffff"/>`);
 
   // imagem de satélite (por baixo) e imagem de fundo (desenho/planta)
-  for (const [im, url] of [
-    [sat, opts.satDataUrl],
-    [bg, opts.bgDataUrl],
+  for (const [im, url, cls] of [
+    [sat, opts.satDataUrl, 'im-sat'],
+    [bg, opts.bgDataUrl, 'im-bg'],
   ] as const) {
     if (!im) continue;
     const iw = im.w * im.scale;
     const ih = im.h * im.scale;
     const giro = im.rot ? ` transform="rotate(${im.rot} ${im.x + iw / 2} ${im.y + ih / 2})"` : '';
+    // no croqui interativo a classe deixa o cliente mudar a opacidade
+    const classe = opts.interactive ? ` class="${cls}"` : '';
     parts.push(
-      `<image href="${url}" x="${im.x}" y="${im.y}" width="${iw}" height="${ih}" opacity="${im.opacity}" preserveAspectRatio="none"${giro}/>`,
+      `<image${classe} href="${url}" x="${im.x}" y="${im.y}" width="${iw}" height="${ih}" opacity="${im.opacity}" preserveAspectRatio="none"${giro}/>`,
     );
   }
 

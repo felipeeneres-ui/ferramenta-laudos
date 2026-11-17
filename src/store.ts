@@ -360,13 +360,23 @@ export const useStore = create<State>((set, get) => {
       const p = loadById(id);
       localStorage.removeItem(KEY_PREFIX + id);
       void excluirDoDisco(id); // na pasta, o projeto vai para _lixeira (não é apagado)
-      // limpa os blobs (fotos, fundos, pasta) do projeto excluído
+      // limpa as cópias locais (fotos, fundos, pasta) do projeto excluído. Só no
+      // navegador: a pasta dele já foi inteira para a _lixeira. Ids que outro projeto
+      // também usa (cópia importada do mesmo projeto) ficam, senão some do outro.
       if (p) {
+        const outros = listProjects()
+          .filter((x) => x.id !== id)
+          .map((x) => loadById(x.id))
+          .filter((x): x is Project => !!x);
+        const fotosEmUso = new Set(outros.flatMap((x) => x.photos.map((ph) => ph.id)));
+        const camadasEmUso = new Set(outros.flatMap((x) => x.floors.map((f) => f.id)));
         void (async () => {
-          for (const ph of p.photos) await deletePhotoBlobs(ph.id);
+          for (const ph of p.photos) if (!fotosEmUso.has(ph.id)) await deletePhotoBlobs(ph.id, true);
           for (const f of p.floors) {
-            await delBg(f.id);
-            await delBg(`${f.id}_sat`);
+            if (!camadasEmUso.has(f.id)) {
+              await delBg(f.id, true);
+              await delBg(`${f.id}_sat`, true);
+            }
             await delDirHandle(p.id, f.id);
           }
           await delDirHandle(p.id);
